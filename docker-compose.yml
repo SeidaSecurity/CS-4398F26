@@ -1,0 +1,30 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: netmgr
+      POSTGRES_USER: netmgr
+      POSTGRES_PASSWORD: netmgr
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netmgr -d netmgr"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  api:
+    build: .
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+      - "514:514/udp"
+      - "514:514/tcp"
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
