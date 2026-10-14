@@ -1,0 +1,52 @@
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--gray-700);
+  font: 400 12px/16px var(--font-sans);
+  cursor: pointer;
+}
+
+.control {
+  position: relative;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+}
+
+.input {
+  position: absolute;
+  inset: 0;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: #fff;
+  color: #fff;
+  box-shadow: 0 0 0 1px #4e51612e;
+  pointer-events: none;
+}
+
+.input:checked + .box {
+  background: var(--brand-600);
+  box-shadow: 0 0 0 1px var(--brand-600);
+}
+
+.input:focus-visible + .box {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 3px;
+}
+
+.input:disabled + .box {
+  opacity: 0.5;
+}

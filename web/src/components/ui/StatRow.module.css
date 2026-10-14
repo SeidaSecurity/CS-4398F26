@@ -1,0 +1,31 @@
+.row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  justify-items: start;
+  gap: 8px;
+}
+
+.caption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 120px;
+  max-width: 120px;
+  color: var(--gray-700);
+  font: 400 12px/16px var(--font-sans);
+  white-space: nowrap;
+}
+
+.fence {
+  flex: 1;
+  min-height: 1px;
+  max-height: 1px;
+  background: #edeff5;
+}
+
+.value {
+  min-width: 0;
+  text-align: left;
+  font: 400 12px/16px var(--font-sans);
+}

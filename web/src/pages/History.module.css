@@ -1,0 +1,137 @@
+.error {
+  padding: 0 16px;
+  color: var(--red-800);
+  font: 400 12px/16px var(--font-sans);
+  overflow-wrap: anywhere;
+}
+
+.content {
+  min-width: 0;
+  padding-top: 12px;
+}
+
+.counts {
+  font: 400 12px/16px var(--font-sans);
+}
+
+.addedCount {
+  color: var(--green-600);
+}
+
+.removedCount {
+  color: var(--red-600);
+}
+
+.diffScroll {
+  overflow-x: auto;
+}
+
+.metadata {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  height: 28px;
+  color: var(--gray-500);
+  font: 400 12px/28px var(--font-sans);
+}
+
+.metadata > div {
+  padding: 0 12px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.metadata > div + div {
+  border-left: 1px solid var(--stroke-pane);
+}
+
+.singleMetadata {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.diff {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font: 400 11px/18px var(--font-mono);
+  white-space: pre;
+}
+
+.numberColumn {
+  width: 40px;
+}
+
+.textColumn {
+  width: auto;
+}
+
+.diff td {
+  height: 18px;
+  padding: 0 12px;
+  vertical-align: top;
+}
+
+.diff .lineNumber {
+  padding: 0 8px;
+  text-align: right;
+  color: var(--gray-400);
+  background: var(--gray-50);
+}
+
+.divider {
+  border-left: 1px solid var(--stroke-pane);
+}
+
+.removed {
+  color: var(--red-800);
+  background: var(--red-50);
+}
+
+.added {
+  color: var(--green-800);
+  background: var(--green-50);
+}
+
+.versions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.version {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gray-800);
+  text-align: left;
+}
+
+.versionLabel {
+  font: 500 12px/16px var(--font-sans);
+}
+
+.time {
+  margin-left: auto;
+  color: var(--gray-500);
+  font: 400 12px/16px var(--font-sans);
+  white-space: nowrap;
+}
+
+.compareVersion {
+  color: var(--brand-800);
+  background: var(--brand-50);
+}
+
+.baseVersion {
+  box-shadow: inset 0 0 0 1px var(--brand-100);
+}
+
+.version:disabled {
+  cursor: default;
+  opacity: 0.5;
+}

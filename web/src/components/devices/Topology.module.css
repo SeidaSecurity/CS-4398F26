@@ -1,0 +1,130 @@
+.container {
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 12px 0;
+  border-radius: 8px;
+  background-color: var(--gray-50, #fafafc);
+  background-image: radial-gradient(circle, #d3d6e0 1px, transparent 1px);
+  background-size: 12px 12px;
+  box-shadow: 0 0 0 1px #e4e6f0;
+  perspective: 800px;
+}
+
+.mesh {
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 200ms ease;
+}
+
+.links {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.downLink {
+  animation: dashFlow 1.2s linear infinite;
+}
+
+@keyframes dashFlow {
+  to {
+    stroke-dashoffset: -6;
+  }
+}
+
+.position {
+  position: absolute;
+  transform: translateX(-50%);
+}
+
+.node {
+  box-sizing: border-box;
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  margin: 0;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--gray-700, #343647);
+  font: inherit;
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+.node:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px #13152214;
+}
+
+.node:focus-visible {
+  outline: 2px solid var(--brand-500, #6977e1);
+  outline-offset: 2px;
+}
+
+.selected {
+  background: var(--brand-50, #eff1ff);
+  box-shadow: 0 0 0 1px var(--brand-100, #d8dcff);
+}
+
+.selected:hover {
+  box-shadow: 0 0 0 1px var(--brand-100, #d8dcff), 0 4px 10px #13152214;
+}
+
+.label {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-self: center;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: fit-content;
+  min-width: max-content;
+  height: 14px;
+  background: #fafafccc;
+  border-radius: 4px;
+  padding: 0 2px;
+}
+
+.name {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  font: 500 10.5px/14px var(--font-sans, sans-serif);
+  letter-spacing: -0.1px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected .name {
+  color: var(--brand-800, #384084);
+}
+
+.status {
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--status-color);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .downLink {
+    animation: none;
+  }
+
+  .mesh,
+  .node {
+    transition: none;
+  }
+
+  .node:hover {
+    transform: none;
+  }
+}
