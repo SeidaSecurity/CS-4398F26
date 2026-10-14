@@ -1,6 +1,15 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -38,6 +47,64 @@ class ConfigVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     device: Mapped[Device] = relationship(back_populates="config_versions")
+
+
+class PollSample(Base):
+    __tablename__ = "poll_samples"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), index=True)
+    polled_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, index=True
+    )
+    reachable: Mapped[bool] = mapped_column()
+    rtt_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cpu_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    memory_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    in_bps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    out_bps: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class DeviceState(Base):
+    __tablename__ = "device_states"
+    __table_args__ = (CheckConstraint("state IN ('up', 'down')"),)
+
+    device_id: Mapped[int] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True
+    )
+    state: Mapped[str] = mapped_column(String(4))
+    last_poll_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class Alert(Base):
+    __tablename__ = "alerts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"))
+    message: Mapped[str] = mapped_column(Text)
+    raised_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class InterfaceStatus(Base):
+    __tablename__ = "interface_statuses"
+    __table_args__ = (CheckConstraint("oper_status IN ('up', 'down')"),)
+
+    device_id: Mapped[int] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True
+    )
+    index: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    oper_status: Mapped[str] = mapped_column(String(4))
+    speed_mbps: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class TopologyLink(Base):
+    __tablename__ = "topology_links"
+
+    a: Mapped[int] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True)
+    b: Mapped[int] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True)
 
 
 class LogRecord(Base):

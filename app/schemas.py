@@ -1,6 +1,15 @@
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+
+
+def as_utc(value: datetime) -> datetime:
+    # SQLite returns naive timestamps even for DateTime(timezone=True) columns.
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+UTCDateTime = Annotated[datetime, AfterValidator(as_utc)]
 
 
 class DeviceCreate(BaseModel):
@@ -76,3 +85,56 @@ class AuditRecordRead(BaseModel):
     outcome: str
     device_name: str | None
     detail: str
+
+
+class DeviceStatusRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    device_id: int
+    state: Literal["up", "down"]
+    last_poll_at: UTCDateTime
+    consecutive_failures: int
+
+
+class AlertRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    device_id: int
+    message: str
+    raised_at: UTCDateTime
+
+
+class InterfaceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    index: int
+    name: str
+    oper_status: Literal["up", "down"]
+    speed_mbps: float | None
+
+
+class TopologyLinkRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    a: int
+    b: int
+
+
+class MetricPoint(BaseModel):
+    t: UTCDateTime
+    value: float
+
+
+class NetworkMetrics(BaseModel):
+    devices_up: list[MetricPoint]
+    cpu_avg: list[MetricPoint]
+    throughput_in_bps: list[MetricPoint]
+    throughput_out_bps: list[MetricPoint]
+
+
+class DeviceMetrics(BaseModel):
+    cpu: list[MetricPoint]
+    memory: list[MetricPoint]
+    throughput_in_bps: list[MetricPoint]
+    throughput_out_bps: list[MetricPoint]

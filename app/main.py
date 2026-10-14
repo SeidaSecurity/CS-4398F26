@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.configuration import NetmikoConnector, record_audit_event, save_config_version
 from app.database import Base, engine, get_session
 from app.models import AuditRecord, ConfigVersion, Device
+from app.monitoring import router as monitoring_router
 from app.schemas import (
     AuditRecordRead,
     ConfigPushRequest,
@@ -43,6 +44,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Network Management API", version="0.1.0", lifespan=lifespan)
+app.include_router(monitoring_router)
 
 
 @app.get("/health")
