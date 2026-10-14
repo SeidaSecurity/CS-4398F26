@@ -2,7 +2,7 @@ import os
 from contextlib import asynccontextmanager
 from datetime import datetime
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -18,6 +18,7 @@ from app.schemas import (
     ConfigVersionRead,
     DeviceCreate,
     DeviceRead,
+    DeviceUpdate,
     LogRecordRead,
 )
 from app.syslog import SyslogReceivers, list_logs
@@ -50,10 +51,15 @@ def health() -> dict[str, str]:
 
 
 @app.post("/api/v1/devices", response_model=DeviceRead, status_code=201)
-def create_device(payload: DeviceCreate, session: Session = Depends(get_session)):
+def create_device(
+    payload: DeviceCreate,
+    operator: str = Query(default="unknown", min_length=1, max_length=120),
+    session: Session = Depends(get_session),
+):
     device = Device(**payload.model_dump())
     session.add(device)
     try:
+        record_audit_event(session, operator, "device.create", "succeeded", device.name)
         session.commit()
     except IntegrityError as exc:
         session.rollback()
@@ -67,6 +73,45 @@ def create_device(payload: DeviceCreate, session: Session = Depends(get_session)
 @app.get("/api/v1/devices", response_model=list[DeviceRead])
 def get_devices(session: Session = Depends(get_session)):
     return list(session.scalars(select(Device).order_by(Device.name)))
+
+
+@app.patch("/api/v1/devices/{device_id}", response_model=DeviceRead)
+def update_device(
+    device_id: int,
+    payload: DeviceUpdate,
+    operator: str = Query(default="unknown", min_length=1, max_length=120),
+    session: Session = Depends(get_session),
+):
+    device = session.get(Device, device_id)
+    if device is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(device, field, value)
+    try:
+        record_audit_event(session, operator, "device.update", "succeeded", device.name)
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=409, detail="A device with that name already exists"
+        ) from exc
+    session.refresh(device)
+    return device
+
+
+@app.delete("/api/v1/devices/{device_id}", status_code=204)
+def delete_device(
+    device_id: int,
+    operator: str = Query(default="unknown", min_length=1, max_length=120),
+    session: Session = Depends(get_session),
+):
+    device = session.get(Device, device_id)
+    if device is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    record_audit_event(session, operator, "device.delete", "succeeded", device.name)
+    session.delete(device)
+    session.commit()
+    return Response(status_code=204)
 
 
 @app.post("/api/v1/devices/{device_id}/config/retrieve", response_model=ConfigVersionRead)

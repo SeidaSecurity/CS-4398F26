@@ -10,6 +10,13 @@ class DeviceCreate(BaseModel):
     ssh_port: int = Field(default=22, ge=1, le=65535)
 
 
+class DeviceUpdate(BaseModel):
+    name: str = Field(default=None, min_length=1, max_length=120)
+    management_ip: str = Field(default=None, min_length=1, max_length=255)
+    platform: str = Field(default=None, min_length=1, max_length=80)
+    ssh_port: int = Field(default=None, ge=1, le=65535)
+
+
 class DeviceRead(DeviceCreate):
     model_config = ConfigDict(from_attributes=True)
 
