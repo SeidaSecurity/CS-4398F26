@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "network-management-app"
 version = "0.1.0"
-description = "Network management application - Track B services"
+description = "Network management application - Tracks A and B services"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115,<1.0",
