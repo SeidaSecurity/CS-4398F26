@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Article, ChartLine, Check, ClockCounterClockwise, Graph, HardDrives, Info, Plugs, Plus, Pulse, Stack, X } from '@phosphor-icons/react'
+import { Article, ChartLine, Check, ClockCounterClockwise, Graph, HardDrives, Info, PencilSimple, Plugs, Plus, Pulse, Stack, Trash, X } from '@phosphor-icons/react'
 import { api, useApi } from '../api'
-import type { DeviceStatus } from '../api'
+import type { Device, DeviceStatus } from '../api'
 import { RightPanel } from '../components/Layout'
 import { DeviceIllustration, PortGrid, Topology, deviceKind } from '../components/devices'
-import { Button, DataTable, FilterBar, IconButton, PanelSection, Pill, Select, StatRow, TextInput } from '../components/ui'
+import { Button, ConfirmDialog, DataTable, FilterBar, IconButton, PanelSection, Pill, Select, StatRow, TextInput } from '../components/ui'
 import { formatTime, relativeTime } from '../lib/format'
 import { severityPill } from '../lib/severity'
 import styles from './Devices.module.css'
@@ -23,6 +23,9 @@ export default function Devices() {
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<Device | null>(null)
+  const [deleting, setDeleting] = useState<Device | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [managementIp, setManagementIp] = useState('')
   const [platform, setPlatform] = useState('cisco_ios')
@@ -71,6 +74,8 @@ export default function Devices() {
   }, [reload])
 
   function setSelectedId(id: number | null) {
+    setEditing(null)
+    setDeleteError(null)
     setSearchParams(params => {
       const next = new URLSearchParams(params)
       if (id === null) next.delete('device')
@@ -89,23 +94,52 @@ export default function Devices() {
     setAdding(true)
   }
 
-  async function addDevice(event: FormEvent<HTMLFormElement>) {
+  function openEdit() {
+    if (!selected) return
+    setName(selected.name)
+    setManagementIp(selected.management_ip)
+    setPlatform(selected.platform)
+    setSshPort(String(selected.ssh_port))
+    setAddError(null)
+    setEditing(selected)
+  }
+
+  async function saveDevice(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (submitting) return
     setSubmitting(true)
     setAddError(null)
     try {
-      const device = await api.createDevice({
+      const payload = {
         name: name.trim(),
         management_ip: managementIp.trim(),
         platform: platform.trim() || 'cisco_ios',
         ssh_port: Number(sshPort),
-      })
+      }
+      const device = editing
+        ? await api.updateDevice(editing.id, payload)
+        : await api.createDevice(payload)
       reload()
       setAdding(false)
       setSelectedId(device.id)
     } catch (reason) {
       setAddError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function removeDevice() {
+    if (!deleting || submitting) return
+    setSubmitting(true)
+    setDeleteError(null)
+    setDeleting(null)
+    try {
+      await api.deleteDevice(deleting.id)
+      setSelectedId(null)
+      reload()
+    } catch (reason) {
+      setDeleteError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       setSubmitting(false)
     }
@@ -148,15 +182,15 @@ export default function Devices() {
         ]} />
       </div>
       <RightPanel>
-        {adding ? (
-          <PanelSection title="Add device" icon={Plus} action={<IconButton size="small" icon={X} label="Close" onClick={() => setAdding(false)} disabled={submitting} />}>
-            <form className={styles.form} onSubmit={addDevice}>
+        {adding || editing ? (
+          <PanelSection title={editing ? 'Edit device' : 'Add device'} icon={editing ? PencilSimple : Plus} action={<IconButton size="small" icon={X} label="Close" onClick={() => { setAdding(false); setEditing(null) }} disabled={submitting} />}>
+            <form className={styles.form} onSubmit={saveDevice}>
               <label className={styles.field}>Name<TextInput required value={name} onChange={event => setName(event.target.value)} disabled={submitting} /></label>
               <label className={styles.field}>Management IP<TextInput required value={managementIp} onChange={event => setManagementIp(event.target.value)} disabled={submitting} /></label>
               <label className={styles.field}>Platform<TextInput value={platform} onChange={event => setPlatform(event.target.value)} disabled={submitting} /></label>
               <label className={styles.field}>SSH port<TextInput type="number" min={1} max={65535} required value={sshPort} onChange={event => setSshPort(event.target.value)} disabled={submitting} /></label>
               {addError && <div role="alert" className={styles.addError}>{addError}</div>}
-              <Button type="submit" variant="primary" disabled={submitting}>Add</Button>
+              <Button type="submit" variant="primary" disabled={submitting}>{editing ? 'Save' : 'Add'}</Button>
             </form>
           </PanelSection>
         ) : selected ? (
@@ -171,6 +205,11 @@ export default function Devices() {
               <StatRow caption="SSH port" value={selected.ssh_port} />
               <StatRow caption="Last poll" value={selectedStatus && relativeTime(selectedStatus.last_poll_at)} />
               <StatRow caption="Added" value={formatTime(selected.created_at)} />
+              <div className={styles.actions}>
+                <Button icon={PencilSimple} onClick={openEdit} disabled={submitting}>Edit</Button>
+                <Button icon={Trash} onClick={() => { setDeleteError(null); setDeleting(selected) }} disabled={submitting}>Delete</Button>
+              </div>
+              {deleteError && <div role="alert" className={styles.addError}>{deleteError}</div>}
             </PanelSection>
             <PanelSection title="Ports" icon={Plugs} action={<span className={styles.portCount}>{portsUp}/{interfaces.length} up</span>}>
               <PortGrid ports={interfaces.map(port => ({ index: port.index, name: port.name, up: port.oper_status === 'up' }))} />
@@ -213,6 +252,9 @@ export default function Devices() {
           </>
         )}
       </RightPanel>
+      <ConfirmDialog open={deleting !== null} title={`Delete ${deleting?.name ?? 'device'}?`} confirmLabel="Delete" onConfirm={removeDevice} onCancel={() => setDeleting(null)}>
+        This will permanently delete the device.
+      </ConfirmDialog>
     </>
   )
 }

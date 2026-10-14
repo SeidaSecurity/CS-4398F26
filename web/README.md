@@ -29,4 +29,4 @@ Default uses in-memory mock data (`src/api/mock.ts`). `VITE_API_MODE=live npm ru
 
 ## Monitoring contract
 
-Monitoring endpoints under `/api/v1/monitoring/*` in `live.ts` and the types marked "Track A — proposed contract" are not implemented in the backend yet: `/api/v1/monitoring/status`, `/api/v1/monitoring/alerts`, `/api/v1/monitoring/metrics?window={window}`, `/api/v1/monitoring/devices/{deviceId}/metrics?window={window}`, `/api/v1/monitoring/topology`, `/api/v1/monitoring/devices/{deviceId}/interfaces`.
+Monitoring endpoints under `/api/v1/monitoring/*` are implemented by the backend in `app/monitoring.py`: `/api/v1/monitoring/status`, `/api/v1/monitoring/alerts`, `/api/v1/monitoring/metrics?window={window}`, `/api/v1/monitoring/devices/{deviceId}/metrics?window={window}`, `/api/v1/monitoring/topology`, `/api/v1/monitoring/devices/{deviceId}/interfaces`. The poller runs when `MONITORING_ENABLED=true`.
