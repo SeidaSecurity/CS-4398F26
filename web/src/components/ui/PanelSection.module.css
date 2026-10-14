@@ -1,0 +1,42 @@
+.section {
+  min-width: 0;
+  color: var(--gray-700);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  gap: 4px;
+  padding: 6px 0;
+}
+
+.header svg {
+  flex-shrink: 0;
+  color: var(--gray-700);
+}
+
+.fence {
+  height: 1px;
+  background: #e4e6f0;
+}
+
+.title {
+  flex: 1;
+  margin: 0;
+  color: var(--gray-800);
+  font: 500 12px/16px var(--font-sans);
+}
+
+.action {
+  display: flex;
+  align-items: center;
+  margin: 0;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+}

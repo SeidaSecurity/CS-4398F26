@@ -1,0 +1,51 @@
+.content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 12px 0 0;
+  gap: 16px;
+}
+
+.content > section {
+  flex-shrink: 0;
+}
+
+.table {
+  flex: 1;
+  min-height: 0;
+}
+
+.table table {
+  table-layout: fixed;
+}
+
+.table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message {
+  display: block;
+  overflow: hidden;
+  font: 400 11px/16px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.error {
+  padding: 0 16px;
+  color: var(--red-800);
+  font-size: 12px;
+}
+
+.body {
+  padding: 8px 10px;
+  border: 1px solid var(--stroke-pane);
+  border-radius: 8px;
+  background: var(--gray-50);
+  font: 400 11px/16px var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
