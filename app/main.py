@@ -1,5 +1,7 @@
+import asyncio
+import logging
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response
@@ -8,9 +10,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.configuration import NetmikoConnector, record_audit_event, save_config_version
-from app.database import Base, engine, get_session
+from app.database import Base, SessionLocal, engine, get_session
 from app.models import AuditRecord, ConfigVersion, Device
 from app.monitoring import router as monitoring_router
+from app.poller import poll_all
+from app.probes import combined_probe
 from app.schemas import (
     AuditRecordRead,
     ConfigPushRequest,
@@ -27,6 +31,20 @@ from app.syslog import SyslogReceivers, list_logs
 Base.metadata.create_all(bind=engine)
 
 
+async def _run_monitoring(interval: float) -> None:
+    while True:
+        worker = asyncio.create_task(asyncio.to_thread(poll_all, SessionLocal, combined_probe))
+        try:
+            await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            # Cancelling to_thread cannot stop its thread; let the transaction finish.
+            await worker
+            raise
+        except Exception:
+            logging.getLogger(__name__).exception("Monitoring poll failed")
+        await asyncio.sleep(interval)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     receivers = None
@@ -38,9 +56,22 @@ async def lifespan(app: FastAPI):
         )
         receivers.start()
     app.state.device_connector = NetmikoConnector()
-    yield
-    if receivers:
-        receivers.stop()
+    monitoring_task = None
+    try:
+        if os.getenv("MONITORING_ENABLED", "false").lower() == "true":
+            monitoring_task = asyncio.create_task(
+                _run_monitoring(float(os.getenv("POLL_INTERVAL_SECONDS", "30")))
+            )
+        yield
+    finally:
+        try:
+            if monitoring_task:
+                monitoring_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await monitoring_task
+        finally:
+            if receivers:
+                receivers.stop()
 
 
 app = FastAPI(title="Network Management API", version="0.1.0", lifespan=lifespan)
