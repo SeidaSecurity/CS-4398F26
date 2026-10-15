@@ -18,7 +18,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       : response.statusText || `HTTP ${response.status}`
     throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
   }
-  return response.json() as Promise<T>
+  if (response.status === 204) return undefined as T
+  const body = await response.text()
+  return body.trim() ? JSON.parse(body) as T : undefined as T
 }
 
 export function listDevices(): Promise<Device[]> {
@@ -27,6 +29,14 @@ export function listDevices(): Promise<Device[]> {
 
 export function createDevice(device: DeviceCreate): Promise<Device> {
   return request('/devices', { method: 'POST', body: JSON.stringify(device) })
+}
+
+export function updateDevice(deviceId: number, patch: Partial<DeviceCreate>): Promise<Device> {
+  return request(`/devices/${deviceId}`, { method: 'PATCH', body: JSON.stringify(patch) })
+}
+
+export function deleteDevice(deviceId: number): Promise<void> {
+  return request(`/devices/${deviceId}`, { method: 'DELETE' })
 }
 
 export function retrieveConfig(deviceId: number, operator: string = 'unknown'): Promise<ConfigVersion> {

@@ -248,6 +248,44 @@ export async function createDevice(payload: DeviceCreate): Promise<Device> {
   return copy(device)
 }
 
+export async function updateDevice(deviceId: number, patch: Partial<DeviceCreate>): Promise<Device> {
+  await delay()
+  const device = requireDevice(deviceId)
+  const updated = {
+    name: patch.name ?? device.name,
+    management_ip: patch.management_ip ?? device.management_ip,
+    platform: patch.platform ?? device.platform,
+    ssh_port: patch.ssh_port ?? device.ssh_port,
+  }
+  validateText(updated.name, 120, 'name')
+  validateText(updated.management_ip, 255, 'management_ip')
+  validateText(updated.platform, 80, 'platform')
+  if (!Number.isInteger(updated.ssh_port) || updated.ssh_port < 1 || updated.ssh_port > 65535) {
+    throw new Error('ssh_port must be between 1 and 65535')
+  }
+  if (devices.some(other => other.id !== deviceId && other.name === updated.name)) {
+    throw new Error('A device with that name already exists')
+  }
+  Object.assign(device, updated)
+  return copy(device)
+}
+
+export async function deleteDevice(deviceId: number): Promise<void> {
+  await delay()
+  const device = requireDevice(deviceId)
+  devices.splice(devices.indexOf(device), 1)
+  for (let index = statuses.length - 1; index >= 0; index--) {
+    if (statuses[index].device_id === deviceId) statuses.splice(index, 1)
+  }
+  for (let index = topology.length - 1; index >= 0; index--) {
+    if (topology[index].a === deviceId || topology[index].b === deviceId) topology.splice(index, 1)
+  }
+  for (let index = alerts.length - 1; index >= 0; index--) {
+    if (alerts[index].device_id === deviceId) alerts.splice(index, 1)
+  }
+  versions.delete(deviceId)
+}
+
 export async function retrieveConfig(deviceId: number, operator: string = 'unknown'): Promise<ConfigVersion> {
   await delay()
   validateText(operator, 120, 'operator')
