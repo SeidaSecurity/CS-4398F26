@@ -1,5 +1,6 @@
 import type {
   Alert, AuditRecord, ConfigPushRequest, ConfigPushResult, ConfigVersion,
+  ConfigTemplate, ConfigTemplateCreate, ConfigTemplateRenderRequest,
   ConfigVersionDetail, Device, DeviceCreate, DeviceMetrics, DeviceStatus,
   Interface, LogQuery, LogRecord, NetworkMetrics, TimeWindow, TopologyLink,
 } from './types'
@@ -61,6 +62,30 @@ export function restoreConfig(
 ): Promise<ConfigPushResult> {
   const params = new URLSearchParams({ operator })
   return request(`/devices/${deviceId}/config/versions/${version}/restore?${params}`, { method: 'POST' })
+}
+
+export function listConfigTemplates(): Promise<ConfigTemplate[]> {
+  return request('/configuration-templates')
+}
+
+export function createConfigTemplate(payload: ConfigTemplateCreate): Promise<ConfigTemplate> {
+  return request('/configuration-templates', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export function updateConfigTemplate(
+  templateId: number, patch: Partial<ConfigTemplateCreate>,
+): Promise<ConfigTemplate> {
+  return request(`/configuration-templates/${templateId}`, { method: 'PATCH', body: JSON.stringify(patch) })
+}
+
+export function deleteConfigTemplate(templateId: number): Promise<void> {
+  return request(`/configuration-templates/${templateId}`, { method: 'DELETE' })
+}
+
+export function renderConfigTemplate(
+  payload: ConfigTemplateRenderRequest,
+): Promise<{ configuration: string }> {
+  return request('/configuration-templates/render', { method: 'POST', body: JSON.stringify(payload) })
 }
 
 export function searchLogs(q: LogQuery): Promise<LogRecord[]> {

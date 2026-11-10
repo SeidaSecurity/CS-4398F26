@@ -201,6 +201,64 @@ def test_restore_configuration_returns_not_found_for_missing_version(client):
     assert response.status_code == 404
 
 
+def test_configuration_template_crud_and_render(client):
+    test_client, _ = client
+    created = test_client.post(
+        "/api/v1/configuration-templates",
+        json={
+            "name": "Access port",
+            "configuration": "interface {{ interface_name }}\n description {{ description }}",
+        },
+    )
+
+    assert created.status_code == 201
+    template = created.json()
+    assert template["name"] == "Access port"
+    assert [item["id"] for item in test_client.get("/api/v1/configuration-templates").json()] == [
+        template["id"]
+    ]
+
+    rendered = test_client.post(
+        "/api/v1/configuration-templates/render",
+        json={
+            "configuration": template["configuration"],
+            "variables": {
+                "interface_name": "GigabitEthernet0/1",
+                "description": "Office uplink",
+            },
+        },
+    )
+    assert rendered.status_code == 200
+    assert rendered.json()["configuration"] == (
+        "interface GigabitEthernet0/1\n description Office uplink"
+    )
+
+    updated = test_client.patch(
+        f"/api/v1/configuration-templates/{template['id']}",
+        json={"name": "Office uplink"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "Office uplink"
+
+    deleted = test_client.delete(f"/api/v1/configuration-templates/{template['id']}")
+    assert deleted.status_code == 204
+    assert test_client.get("/api/v1/configuration-templates").json() == []
+
+
+def test_configuration_template_rejects_duplicate_name_and_missing_values(client):
+    test_client, _ = client
+    payload = {"name": "Shared", "configuration": "hostname {{ hostname }}"}
+    assert test_client.post("/api/v1/configuration-templates", json=payload).status_code == 201
+    assert test_client.post("/api/v1/configuration-templates", json=payload).status_code == 409
+
+    response = test_client.post(
+        "/api/v1/configuration-templates/render",
+        json={"configuration": payload["configuration"], "variables": {}},
+    )
+    assert response.status_code == 422
+    assert "hostname" in response.json()["detail"]
+
+
 def test_log_search_filters_records(client):
     test_client, testing_session = client
     with testing_session() as session:

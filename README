@@ -7,6 +7,7 @@ Track B starter implementation for remote configuration management and centraliz
 - FastAPI service with versioned `/api/v1` routes.
 - SQLAlchemy models for the shared device contract, configuration snapshots, and syslog records.
 - Netmiko-backed Cisco IOS configuration retrieval and push.
+- Reusable configuration templates with validated variable substitution and a rendered push preview.
 - UDP/TCP syslog listeners, RFC 5424/3164 parsing, durable storage, and searchable log API.
 - Append-only audit events with a read-only API, including Track A's future login/account event hook.
 - PostgreSQL-backed Docker Compose development environment and focused tests.

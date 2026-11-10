@@ -49,6 +49,16 @@ class ConfigVersion(Base):
     device: Mapped[Device] = relationship(back_populates="config_versions")
 
 
+class ConfigTemplate(Base):
+    __tablename__ = "config_templates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    configuration: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class PollSample(Base):
     __tablename__ = "poll_samples"
 

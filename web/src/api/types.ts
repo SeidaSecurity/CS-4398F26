@@ -23,6 +23,24 @@ export interface ConfigVersionDetail extends ConfigVersion {
   configuration: string
 }
 
+export interface ConfigTemplate {
+  id: number
+  name: string
+  configuration: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ConfigTemplateCreate {
+  name: string
+  configuration: string
+}
+
+export interface ConfigTemplateRenderRequest {
+  configuration: string
+  variables: Record<string, string>
+}
+
 export interface ConfigPushRequest {
   device_ids: number[]
   configuration: string

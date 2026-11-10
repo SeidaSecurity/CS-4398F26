@@ -48,6 +48,33 @@ class ConfigVersionDetail(ConfigVersionRead):
     configuration: str
 
 
+class ConfigTemplateCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    configuration: str = Field(min_length=1, max_length=100_000)
+
+
+class ConfigTemplateUpdate(BaseModel):
+    name: str = Field(default=None, min_length=1, max_length=120)
+    configuration: str = Field(default=None, min_length=1, max_length=100_000)
+
+
+class ConfigTemplateRead(ConfigTemplateCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConfigTemplateRenderRequest(BaseModel):
+    configuration: str = Field(min_length=1, max_length=100_000)
+    variables: dict[str, str] = Field(default_factory=dict)
+
+
+class ConfigTemplateRenderRead(BaseModel):
+    configuration: str
+
+
 class ConfigPushRequest(BaseModel):
     device_ids: list[int] = Field(min_length=1)
     configuration: str = Field(min_length=1)

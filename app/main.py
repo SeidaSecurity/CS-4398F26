@@ -9,9 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.config_templates import TemplateRenderError, render_template
 from app.configuration import NetmikoConnector, record_audit_event, save_config_version
 from app.database import Base, SessionLocal, engine, get_session
-from app.models import AuditRecord, ConfigVersion, Device
+from app.models import AuditRecord, ConfigTemplate, ConfigVersion, Device, utc_now
 from app.monitoring import router as monitoring_router
 from app.poller import poll_all
 from app.probes import combined_probe
@@ -19,6 +20,11 @@ from app.schemas import (
     AuditRecordRead,
     ConfigPushRequest,
     ConfigPushResult,
+    ConfigTemplateCreate,
+    ConfigTemplateRead,
+    ConfigTemplateRenderRead,
+    ConfigTemplateRenderRequest,
+    ConfigTemplateUpdate,
     ConfigVersionDetail,
     ConfigVersionRead,
     DeviceCreate,
@@ -205,6 +211,89 @@ def get_configuration_version(
     if record is None:
         raise HTTPException(status_code=404, detail="Configuration version not found")
     return record
+
+
+@app.get(
+    "/api/v1/configuration-templates",
+    response_model=list[ConfigTemplateRead],
+)
+def list_configuration_templates(session: Session = Depends(get_session)):
+    return list(
+        session.scalars(select(ConfigTemplate).order_by(ConfigTemplate.name, ConfigTemplate.id))
+    )
+
+
+@app.post(
+    "/api/v1/configuration-templates",
+    response_model=ConfigTemplateRead,
+    status_code=201,
+)
+def create_configuration_template(
+    payload: ConfigTemplateCreate,
+    session: Session = Depends(get_session),
+):
+    template = ConfigTemplate(**payload.model_dump())
+    session.add(template)
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=409, detail="A configuration template with that name already exists"
+        ) from exc
+    session.refresh(template)
+    return template
+
+
+@app.post(
+    "/api/v1/configuration-templates/render",
+    response_model=ConfigTemplateRenderRead,
+)
+def render_configuration_template(payload: ConfigTemplateRenderRequest):
+    try:
+        configuration = render_template(payload.configuration, payload.variables)
+    except TemplateRenderError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return ConfigTemplateRenderRead(configuration=configuration)
+
+
+@app.patch(
+    "/api/v1/configuration-templates/{template_id}",
+    response_model=ConfigTemplateRead,
+)
+def update_configuration_template(
+    template_id: int,
+    payload: ConfigTemplateUpdate,
+    session: Session = Depends(get_session),
+):
+    template = session.get(ConfigTemplate, template_id)
+    if template is None:
+        raise HTTPException(status_code=404, detail="Configuration template not found")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(template, field, value)
+    template.updated_at = utc_now()
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=409, detail="A configuration template with that name already exists"
+        ) from exc
+    session.refresh(template)
+    return template
+
+
+@app.delete("/api/v1/configuration-templates/{template_id}", status_code=204)
+def delete_configuration_template(
+    template_id: int,
+    session: Session = Depends(get_session),
+):
+    template = session.get(ConfigTemplate, template_id)
+    if template is None:
+        raise HTTPException(status_code=404, detail="Configuration template not found")
+    session.delete(template)
+    session.commit()
+    return Response(status_code=204)
 
 
 @app.post(

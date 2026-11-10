@@ -4,6 +4,8 @@ React + Vite + Recharts UI for the network management app.
 
 ## Run
 
+Requirements: Node.js 20.19+ or 22.12+.
+
 From `web/`:
 
 ```sh

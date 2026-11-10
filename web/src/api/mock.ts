@@ -1,5 +1,6 @@
 import type {
   Alert, AuditRecord, ConfigPushRequest, ConfigPushResult, ConfigVersion,
+  ConfigTemplate, ConfigTemplateCreate, ConfigTemplateRenderRequest,
   ConfigVersionDetail, Device, DeviceCreate, DeviceMetrics, DeviceStatus,
   Interface, LogQuery, LogRecord, MetricPoint, NetworkMetrics, TimeWindow, TopologyLink,
 } from './types'
@@ -61,9 +62,11 @@ const alerts: Alert[] = [{
 
 const versions = new Map<number, ConfigVersionDetail[]>()
 const audit: AuditRecord[] = []
+const configurationTemplates: ConfigTemplate[] = []
 let nextConfigId = 1
 let nextAuditId = 1
 let nextDeviceId = 7
+let nextTemplateId = 1
 
 function runningConfig(device: Device, revision: number): string {
   const subnet = device.management_ip.split('.').slice(0, 3).join('.')
@@ -370,6 +373,79 @@ export async function restoreConfig(
     status: 'succeeded',
     before_version: before.version,
     after_version: after.version,
+  }
+}
+
+export async function listConfigTemplates(): Promise<ConfigTemplate[]> {
+  await delay()
+  return copy([...configurationTemplates].sort((a, b) => a.name.localeCompare(b.name)))
+}
+
+export async function createConfigTemplate(payload: ConfigTemplateCreate): Promise<ConfigTemplate> {
+  await delay()
+  validateText(payload.name.trim(), 120, 'name')
+  validateText(payload.configuration, 100_000, 'configuration')
+  if (configurationTemplates.some(template => template.name === payload.name.trim())) {
+    throw new Error('A configuration template with that name already exists')
+  }
+  const now = iso(Date.now())
+  const template = {
+    id: nextTemplateId++,
+    name: payload.name.trim(),
+    configuration: payload.configuration,
+    created_at: now,
+    updated_at: now,
+  }
+  configurationTemplates.push(template)
+  return copy(template)
+}
+
+export async function updateConfigTemplate(
+  templateId: number, patch: Partial<ConfigTemplateCreate>,
+): Promise<ConfigTemplate> {
+  await delay()
+  const template = configurationTemplates.find(item => item.id === templateId)
+  if (!template) throw new Error('Configuration template not found')
+  const name = patch.name === undefined ? template.name : patch.name.trim()
+  const configuration = patch.configuration ?? template.configuration
+  validateText(name, 120, 'name')
+  validateText(configuration, 100_000, 'configuration')
+  if (configurationTemplates.some(item => item.id !== templateId && item.name === name)) {
+    throw new Error('A configuration template with that name already exists')
+  }
+  template.name = name
+  template.configuration = configuration
+  template.updated_at = iso(Date.now())
+  return copy(template)
+}
+
+export async function deleteConfigTemplate(templateId: number): Promise<void> {
+  await delay()
+  const index = configurationTemplates.findIndex(item => item.id === templateId)
+  if (index < 0) throw new Error('Configuration template not found')
+  configurationTemplates.splice(index, 1)
+}
+
+export async function renderConfigTemplate(
+  payload: ConfigTemplateRenderRequest,
+): Promise<{ configuration: string }> {
+  await delay()
+  const matches = [...payload.configuration.matchAll(/\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g)]
+  const remainder = payload.configuration.replace(/\{\{\s*[A-Za-z_][A-Za-z0-9_]*\s*\}\}/g, '')
+  if (remainder.includes('{{') || remainder.includes('}}')) {
+    throw new Error('Use placeholders in the form {{ variable_name }} with letters, numbers, and underscores')
+  }
+  const required = new Set(matches.map(match => match[1]))
+  const supplied = new Set(Object.keys(payload.variables))
+  const missing = [...required].filter(name => !supplied.has(name)).sort()
+  const extra = [...supplied].filter(name => !required.has(name)).sort()
+  if (missing.length) throw new Error(`Missing template values: ${missing.join(', ')}`)
+  if (extra.length) throw new Error(`Unused template values: ${extra.join(', ')}`)
+  return {
+    configuration: payload.configuration.replace(
+      /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g,
+      (_, name: string) => payload.variables[name],
+    ),
   }
 }
 
