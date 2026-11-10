@@ -341,6 +341,38 @@ export async function pushConfig(req: ConfigPushRequest): Promise<ConfigPushResu
   })
 }
 
+export async function restoreConfig(
+  deviceId: number, version: number, operator: string = 'unknown',
+): Promise<ConfigPushResult> {
+  await delay()
+  validateText(operator, 120, 'operator')
+  const device = requireDevice(deviceId)
+  const target = versions.get(deviceId)?.find(record => record.version === version)
+  if (!target) throw new Error('Configuration version not found')
+  const result: ConfigPushResult = {
+    device_id: deviceId, status: 'failed', before_version: null, after_version: null, error: null,
+  }
+  if (statuses.find(status => status.device_id === deviceId)?.state === 'down') {
+    const error = 'TimeoutError: Connection timed out'
+    recordAudit(operator, 'configuration.rollback', 'failed', device.name,
+      `Failed to restore configuration version ${version}: ${error}`)
+    return { ...result, error }
+  }
+  const current = versions.get(deviceId)?.at(-1)?.configuration ?? runningConfig(device, 1)
+  const before = saveVersion(deviceId, current, 'pre_rollback', operator)
+  recordAudit(operator, 'configuration.rollback', 'started', device.name,
+    `Saved pre-rollback configuration version ${before.version}`)
+  const after = saveVersion(deviceId, target.configuration, 'rollback', operator)
+  recordAudit(operator, 'configuration.rollback', 'succeeded', device.name,
+    `Restored configuration version ${version} as version ${after.version}`)
+  return {
+    ...result,
+    status: 'succeeded',
+    before_version: before.version,
+    after_version: after.version,
+  }
+}
+
 export async function searchLogs(q: LogQuery): Promise<LogRecord[]> {
   await delay()
   const limit = q.limit ?? 100

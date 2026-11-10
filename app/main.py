@@ -207,6 +207,79 @@ def get_configuration_version(
     return record
 
 
+@app.post(
+    "/api/v1/devices/{device_id}/config/versions/{version}/restore",
+    response_model=ConfigPushResult,
+)
+def restore_configuration(
+    device_id: int,
+    version: int,
+    operator: str = Query(default="unknown", min_length=1, max_length=120),
+    session: Session = Depends(get_session),
+):
+    device = session.get(Device, device_id)
+    if device is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    target = session.scalar(
+        select(ConfigVersion).where(
+            ConfigVersion.device_id == device_id,
+            ConfigVersion.version == version,
+        )
+    )
+    if target is None:
+        raise HTTPException(status_code=404, detail="Configuration version not found")
+    target_configuration = target.configuration
+
+    try:
+        before = app.state.device_connector.retrieve(device)
+        before_version = save_config_version(
+            session, device.id, before, "pre_rollback", operator
+        ).version
+        record_audit_event(
+            session,
+            operator,
+            "configuration.rollback",
+            "started",
+            device.name,
+            f"Saved pre-rollback configuration version {before_version}",
+        )
+        session.commit()
+
+        app.state.device_connector.restore(device, target_configuration)
+        after = app.state.device_connector.retrieve(device)
+        after_version = save_config_version(
+            session, device.id, after, "rollback", operator
+        ).version
+        record_audit_event(
+            session,
+            operator,
+            "configuration.rollback",
+            "succeeded",
+            device.name,
+            f"Restored configuration version {version} as version {after_version}",
+        )
+        session.commit()
+        return ConfigPushResult(
+            device_id=device_id,
+            status="succeeded",
+            before_version=before_version,
+            after_version=after_version,
+        )
+    except Exception as exc:
+        session.rollback()
+        error = f"{type(exc).__name__}: {exc}"
+        record_audit_event(
+            session,
+            operator,
+            "configuration.rollback",
+            "failed",
+            device.name,
+            f"Failed to restore configuration version {version}: {error}",
+        )
+        session.commit()
+        return ConfigPushResult(device_id=device_id, status="failed", error=error)
+
+
 @app.post("/api/v1/configurations/push", response_model=list[ConfigPushResult])
 def push_configuration(payload: ConfigPushRequest, session: Session = Depends(get_session)):
     results = []

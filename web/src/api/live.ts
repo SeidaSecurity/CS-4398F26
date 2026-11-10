@@ -56,6 +56,13 @@ export function pushConfig(req: ConfigPushRequest): Promise<ConfigPushResult[]> 
   return request('/configurations/push', { method: 'POST', body: JSON.stringify(req) })
 }
 
+export function restoreConfig(
+  deviceId: number, version: number, operator: string = 'unknown',
+): Promise<ConfigPushResult> {
+  const params = new URLSearchParams({ operator })
+  return request(`/devices/${deviceId}/config/versions/${version}/restore?${params}`, { method: 'POST' })
+}
+
 export function searchLogs(q: LogQuery): Promise<LogRecord[]> {
   const params = new URLSearchParams()
   for (const [key, value] of Object.entries(q)) {

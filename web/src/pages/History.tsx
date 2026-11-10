@@ -1,10 +1,10 @@
 import { useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { ArrowRight, ArrowsClockwise, Check, Clock, ClockCounterClockwise, DownloadSimple, HardDrives } from '@phosphor-icons/react'
+import { ArrowCounterClockwise, ArrowRight, ArrowsClockwise, Check, Clock, ClockCounterClockwise, DownloadSimple, HardDrives } from '@phosphor-icons/react'
 import { api, useApi } from '../api'
-import type { ConfigVersion } from '../api'
+import type { ConfigPushResult, ConfigVersion } from '../api'
 import { RightPanel } from '../components/Layout'
-import { FilterBar, IconButton, PanelSection, Pill, SectionHeader, Select } from '../components/ui'
+import { ConfirmDialog, FilterBar, IconButton, PanelSection, Pill, SectionHeader, Select } from '../components/ui'
 import { sideBySide } from '../lib/diff'
 import { formatTime, relativeTime } from '../lib/format'
 import styles from './History.module.css'
@@ -30,6 +30,15 @@ export default function History() {
   const [retrieving, setRetrieving] = useState(false)
   const retrieveInFlight = useRef(false)
   const [retrieveError, setRetrieveError] = useState<{ deviceId: number; message: string } | null>(null)
+  const [restoreTarget, setRestoreTarget] = useState<number | null>(null)
+  const [restoring, setRestoring] = useState(false)
+  const restoreInFlight = useRef(false)
+  const [restoreResult, setRestoreResult] = useState<{
+    deviceId: number
+    version: number
+    result?: ConfigPushResult
+    error?: string
+  } | null>(null)
 
   const versionsQuery = useApi(async () => ({
     deviceId,
@@ -59,6 +68,7 @@ export default function History() {
     64 + 7 * (row.left?.text.length ?? 0), 64 + 7 * (row.right?.text.length ?? 0)), 160)
   const error = (retrieveError && retrieveError.deviceId === deviceId ? retrieveError.message : null)
     ?? devicesQuery.error?.message ?? versionsQuery.error?.message ?? configQuery.error?.message
+  const currentRestoreResult = restoreResult?.deviceId === deviceId ? restoreResult : null
   const versionOptions = versions.map(version => ({ value: String(version.version), label: `v${version.version}` }))
 
   function selectVersions(nextCompare: number, nextBase: number) {
@@ -100,12 +110,49 @@ export default function History() {
     }
   }
 
+  async function restore() {
+    if (deviceId === undefined || restoreTarget === null || restoreInFlight.current) return
+    const targetVersion = restoreTarget
+    restoreInFlight.current = true
+    setRestoring(true)
+    setRestoreTarget(null)
+    setRestoreResult(null)
+    try {
+      const result = await api.restoreConfig(deviceId, targetVersion, 'operator')
+      if (activeDevice.current !== deviceId) return
+      if (result.status !== 'succeeded' || result.after_version === null) {
+        setRestoreResult({
+          deviceId,
+          version: targetVersion,
+          result,
+          error: result.error ?? 'Configuration restore failed',
+        })
+        return
+      }
+      setRestoreResult({ deviceId, version: targetVersion, result })
+      selectVersions(result.after_version, targetVersion)
+      versionsQuery.reload()
+      configQuery.reload()
+    } catch (reason) {
+      if (activeDevice.current === deviceId) {
+        setRestoreResult({
+          deviceId,
+          version: targetVersion,
+          error: reason instanceof Error ? reason.message : String(reason),
+        })
+      }
+    } finally {
+      restoreInFlight.current = false
+      setRestoring(false)
+    }
+  }
+
   return (
     <>
       <FilterBar>
         <Select icon={HardDrives} aria-label="Device" value={deviceId === undefined ? '' : String(deviceId)}
           options={devices.map(item => ({ value: String(item.id), label: item.name }))}
-          disabled={!devices.length || retrieving}
+          disabled={!devices.length || retrieving || restoring}
           onChange={value => {
             setRetrieveError(null)
             setSearchParams(params => {
@@ -117,11 +164,11 @@ export default function History() {
             })
           }} />
         <Select aria-label="Base version" value={base === undefined ? '' : String(base)} options={versionOptions}
-          disabled={!versions.length || retrieving} onChange={value => { if (compare !== undefined) selectVersions(compare, Number(value)) }} />
+          disabled={!versions.length || retrieving || restoring} onChange={value => { if (compare !== undefined) selectVersions(compare, Number(value)) }} />
         <ArrowRight size={12} color="var(--gray-400)" aria-hidden="true" />
         <Select aria-label="Compare version" value={compare === undefined ? '' : String(compare)} options={versionOptions}
-          disabled={!versions.length || retrieving} onChange={value => { if (base !== undefined) selectVersions(Number(value), base) }} />
-        <IconButton size="small" icon={ArrowsClockwise} label="Refresh" onClick={reload} disabled={retrieving} />
+          disabled={!versions.length || retrieving || restoring} onChange={value => { if (base !== undefined) selectVersions(Number(value), base) }} />
+        <IconButton size="small" icon={ArrowsClockwise} label="Refresh" onClick={reload} disabled={retrieving || restoring} />
       </FilterBar>
       {error && <div role="alert" className={styles.error}>{error}</div>}
       {config && <div className={styles.content}>
@@ -156,20 +203,51 @@ export default function History() {
       </div>}
       <RightPanel>
         <PanelSection title="Versions" icon={ClockCounterClockwise} action={
-          <IconButton size="small" icon={DownloadSimple} label="Retrieve running config" onClick={retrieve} disabled={deviceId === undefined || retrieving} />
+          <IconButton size="small" icon={DownloadSimple} label="Retrieve running config" onClick={retrieve} disabled={deviceId === undefined || retrieving || restoring} />
         }>
           <div className={styles.versions}>
-            {versions.map((version, index) => <button key={version.id} type="button"
-              className={[styles.version, version.version === compare && styles.compareVersion, version.version === base && styles.baseVersion].filter(Boolean).join(' ')}
-              aria-pressed={version.version === compare} disabled={retrieving}
-              onClick={() => selectVersions(version.version, versions[index + 1]?.version ?? version.version)}>
-              <span className={styles.versionLabel}>v{version.version}</span>
-              <Pill tone="gray" size="small" icon={version.source === 'push' ? Check : Clock}>{version.source}</Pill>
-              <span className={styles.time}>{relativeTime(version.created_at)}</span>
-            </button>)}
+            {versions.map((version, index) => <div key={version.id} className={styles.versionRow}>
+              <button type="button"
+                className={[styles.version, version.version === compare && styles.compareVersion, version.version === base && styles.baseVersion].filter(Boolean).join(' ')}
+                aria-pressed={version.version === compare} disabled={retrieving || restoring}
+                onClick={() => selectVersions(version.version, versions[index + 1]?.version ?? version.version)}>
+                <span className={styles.versionLabel}>v{version.version}</span>
+                <Pill tone="gray" size="small" icon={version.source === 'push' ? Check : Clock}>{version.source}</Pill>
+                <span className={styles.time}>{relativeTime(version.created_at)}</span>
+              </button>
+              <IconButton
+                size="small"
+                icon={ArrowCounterClockwise}
+                label={`Restore version ${version.version}`}
+                title={`Restore version ${version.version}`}
+                disabled={retrieving || restoring}
+                onClick={() => {
+                  setRestoreResult(null)
+                  setRestoreTarget(version.version)
+                }}
+              />
+            </div>)}
           </div>
+          {currentRestoreResult?.result?.status === 'succeeded' && (
+            <div role="status" className={styles.restoreSuccess}>
+              Restored v{currentRestoreResult.version} as v{currentRestoreResult.result.after_version}.
+            </div>
+          )}
+          {currentRestoreResult?.error && (
+            <div role="alert" className={styles.error}>{currentRestoreResult.error}</div>
+          )}
         </PanelSection>
       </RightPanel>
+      <ConfirmDialog
+        open={restoreTarget !== null}
+        title={`Restore configuration v${restoreTarget ?? ''}?`}
+        confirmLabel="Restore"
+        onConfirm={restore}
+        onCancel={() => setRestoreTarget(null)}
+      >
+        This applies the saved configuration to {device?.name ?? 'the selected device'}.
+        The current configuration will be backed up first, and the restored result will be saved as a new version.
+      </ConfirmDialog>
     </>
   )
 }

@@ -100,7 +100,11 @@ export default function Push() {
         </PanelSection>}
       </RightPanel>
       <ConfirmDialog open={confirming} title={`Push to ${targets.length} ${targets.length === 1 ? 'device' : 'devices'}?`} confirmLabel="Push" onConfirm={push} onCancel={() => setConfirming(false)}>
-        {targets.map(device => device.name).join(', ')}
+        <div className={styles.confirmation}>
+          <div><strong>Targets:</strong> {targets.map(device => device.name).join(', ')}</div>
+          <div><strong>Configuration snippet:</strong></div>
+          <pre className={styles.preview}>{snippet}</pre>
+        </div>
       </ConfirmDialog>
     </>
   )

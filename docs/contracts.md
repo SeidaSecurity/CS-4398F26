@@ -22,6 +22,7 @@ Credentials are deliberately outside the device table. The current lab adapter l
 - Device fields above are the provisional shared model.
 - Configuration push returns one result per distinct target device; one device failure does not cancel later targets.
 - Configuration versions retain full captured text, monotonically numbered per device, with `source`, `operator`, and UTC creation time.
+- `POST /api/v1/devices/{device_id}/config/versions/{version}/restore?operator=` restores a saved version, first captures the current configuration as `pre_rollback`, captures the resulting running configuration as a new `rollback` version, and audits the operation. It returns one `ConfigPushResult` and uses 404 when the device or version is missing.
 - Logs expose `timestamp`, `received_at`, `source`, `facility`, `severity`, `body`, and `parsed`; raw input is retained in storage for unparsed-message troubleshooting.
 - Log severity follows syslog numeric severity 0 (emergency) through 7 (debug); facility uses the syslog numeric facility.
 - The append-only audit table records operator, action, outcome, device (when applicable), and detail. The API exposes read-only access at `GET /api/v1/audit`; Track A should call the audit writer for login and account changes.
@@ -53,9 +54,10 @@ All endpoints below use GET. Shapes show example values; timestamps are UTC date
 
 ## Current limitations and follow-up decisions
 
-- Authentication, authorization, HTTPS, secret encryption, retention jobs, migrations, diff/rollback, and configuration templates are not implemented yet.
+- Authentication, authorization, HTTPS, secret encryption, retention jobs, migrations, and configuration templates are not implemented yet.
 - The API accepts operator labels but does not authenticate them. Run only in an isolated lab.
 - Cisco `cisco_ios` is the initial target; verify the exact IOS image and CLI behavior against the GNS3 lab.
+- Configuration restore replays the saved configuration through the device adapter; verify restore behavior against the target IOS image, especially removal of settings added after the saved version.
 - TCP syslog currently expects newline-delimited messages; confirm whether the chosen Cisco IOS image requires RFC 6587 octet-counted framing.
 - The simple schema bootstrap is suitable for a clean development database; adopt Alembic migrations before shared, persistent schema evolution.
 - Confirm the shared device schema/API contract with the other tracks and document any changes here.

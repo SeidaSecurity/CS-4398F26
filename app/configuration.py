@@ -57,6 +57,8 @@ class NetworkDeviceConnector(Protocol):
 
     def push(self, device: Device, configuration: str) -> None: ...
 
+    def restore(self, device: Device, configuration: str) -> None: ...
+
 
 class NetmikoConnector:
     def __init__(self, credentials: EnvironmentCredentials | None = None) -> None:
@@ -81,6 +83,9 @@ class NetmikoConnector:
 
     def push(self, device: Device, configuration: str) -> None:
         self._run(device, "push", configuration)
+
+    def restore(self, device: Device, configuration: str) -> None:
+        self._run(device, "restore", configuration)
 
 
 def save_config_version(

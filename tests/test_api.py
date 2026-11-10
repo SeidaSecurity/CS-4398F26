@@ -26,6 +26,11 @@ class FakeConnector:
             raise RuntimeError("simulated device rejection")
         self.configurations[device.name] = f"{self.configurations[device.name]}\n{configuration}"
 
+    def restore(self, device, configuration):
+        if device.name == "ios-lab-2":
+            raise RuntimeError("simulated device rejection")
+        self.configurations[device.name] = configuration
+
 
 @pytest.fixture
 def client():
@@ -107,6 +112,93 @@ def test_push_saves_versions_and_continues_after_device_failure(client):
             if not event["action"].startswith("device.")
         ]
     ) == 4
+
+
+def test_restore_configuration_creates_a_new_version_and_audit_event(client):
+    test_client, testing_session = client
+    device = test_client.post(
+        "/api/v1/devices",
+        json={"name": "ios-lab-1", "management_ip": "192.0.2.10"},
+    ).json()
+    original = "hostname first"
+    pushed = test_client.post(
+        "/api/v1/configurations/push",
+        json={
+            "device_ids": [device["id"]],
+            "configuration": "description changed",
+            "operator": "test-operator",
+        },
+    ).json()[0]
+    target_version = pushed["before_version"]
+
+    response = test_client.post(
+        f"/api/v1/devices/{device['id']}/config/versions/{target_version}/restore",
+        params={"operator": "test-operator"},
+    )
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["status"] == "succeeded"
+    assert result["before_version"] == 3
+    assert result["after_version"] == 4
+    restored = test_client.get(
+        f"/api/v1/devices/{device['id']}/config/versions/{result['after_version']}"
+    )
+    assert restored.json()["configuration"] == original
+    assert restored.json()["source"] == "rollback"
+
+    with testing_session() as session:
+        events = list(
+            session.scalars(
+                select(AuditRecord)
+                .where(AuditRecord.action == "configuration.rollback")
+                .order_by(AuditRecord.id)
+            )
+        )
+        assert [(event.outcome, event.actor) for event in events] == [
+            ("started", "test-operator"),
+            ("succeeded", "test-operator"),
+        ]
+
+
+def test_restore_configuration_reports_device_failure(client):
+    test_client, testing_session = client
+    device = test_client.post(
+        "/api/v1/devices",
+        json={"name": "ios-lab-2", "management_ip": "192.0.2.11"},
+    ).json()
+    version = test_client.post(
+        f"/api/v1/devices/{device['id']}/config/retrieve"
+    ).json()["version"]
+
+    response = test_client.post(
+        f"/api/v1/devices/{device['id']}/config/versions/{version}/restore"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    assert "simulated device rejection" in response.json()["error"]
+    with testing_session() as session:
+        event = session.scalar(
+            select(AuditRecord)
+            .where(AuditRecord.action == "configuration.rollback")
+            .order_by(AuditRecord.id.desc())
+        )
+        assert event.outcome == "failed"
+
+
+def test_restore_configuration_returns_not_found_for_missing_version(client):
+    test_client, _ = client
+    device = test_client.post(
+        "/api/v1/devices",
+        json={"name": "ios-lab-1", "management_ip": "192.0.2.10"},
+    ).json()
+
+    response = test_client.post(
+        f"/api/v1/devices/{device['id']}/config/versions/999/restore"
+    )
+
+    assert response.status_code == 404
 
 
 def test_log_search_filters_records(client):
