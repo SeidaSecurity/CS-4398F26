@@ -64,7 +64,7 @@ with the next device (R3.5). The COMMIT before `Applying` guarantees that the pr
 survives a failure later in the sequence. Covered by `test_r3_5_*`, `test_5_3_3_*`, and
 `test_push_saves_versions_*`. (Before P-002, the read-back failure was reported as "failed".)
 
-## 4. Rollback — R3.6 (`restore_configuration`) — implemented
+## 4. Rollback — R3.6 (`ConfigurationService.rollback`) — implemented
 
 Same shape as §3. The target text comes from a stored `ConfigVersion`, the saved versions are
 `pre_rollback` → `rollback`, and a missing device or version returns 404 before any state is entered.
@@ -116,17 +116,49 @@ stateDiagram-v2
     Free --> Exhausted : DISCOVER with no free address / log (R6.7)
 ```
 
-## 8. Operator session — R7.1, R7.2, R7.5 — **planned (Track A)**
+## 8. Operator session — R7.1, R7.2, R4.4 (`app/auth.py`, `app/auth_routes.py`) — implemented
 
 ```mermaid
 stateDiagram-v2
     [*] --> Anonymous
-    Anonymous --> Anonymous : bad credentials / generic error, audit failure
-    Anonymous --> Authenticated : good credentials / audit login
-    state Authenticated {
-        [*] --> Admin
-        [*] --> Viewer
-        Viewer --> Viewer : write request / 403, audit refusal
+    Anonymous --> Anonymous : any /api/v1 request / 401 "not logged in"
+    Anonymous --> Anonymous : POST login, bad credentials / 401 generic, audit auth.login failed
+    Anonymous --> SignedIn : POST login, valid and enabled / session row + HTTP-only cookie, audit succeeded
+    state SignedIn {
+        [*] --> Admin : role = admin
+        [*] --> Viewer : role = viewer
+        Admin --> Admin : any request / allowed
+        Viewer --> Viewer : GET / allowed
+        Viewer --> Viewer : non-GET or /users / 403, audit access.denied refused
+        Admin --> Viewer : an admin changes the role (next request)
+        Viewer --> Admin : an admin changes the role (next request)
     }
-    Authenticated --> Anonymous : logout or idle timeout (R7.5)
+    SignedIn --> Anonymous : POST logout / session row deleted, cookie cleared, audit auth.logout
+    SignedIn --> Anonymous : 8 h after login / session expired
+    SignedIn --> Anonymous : account disabled by an admin / takes effect on the next request
 ```
+
+The role is re-read from the database on every request (`resolve_session`), which is why role
+changes and disabling take effect immediately. A wrong password, an unknown user and a disabled
+user all produce the **same** 401 body (SRS 3.1.1). An idle timeout (R7.5, Desirable) is not
+implemented; sessions end 8 hours after login (`SESSION_HOURS`).
+Covered by `tests/test_auth_api.py`, `tests/test_access_policy.py`, `tests/test_auth.py`.
+
+## 9. User account — R7.4 (`auth.create_user`, `auth.update_user`) — implemented
+
+```mermaid
+stateDiagram-v2
+    [*] --> ActiveViewer : created by an admin (role viewer)
+    [*] --> ActiveAdmin : created by an admin (role admin), or bootstrap from env when no users exist
+    ActiveViewer --> ActiveAdmin : role -> admin / audit user.update
+    ActiveAdmin --> ActiveViewer : role -> viewer [another active admin exists] / audit
+    ActiveAdmin --> ActiveAdmin : role -> viewer or disable [last active admin] / 409 refused
+    ActiveViewer --> Disabled : disable / sessions stop working, audit
+    ActiveAdmin --> Disabled : disable [another active admin exists] / audit
+    Disabled --> ActiveViewer : enable (role viewer)
+    Disabled --> ActiveAdmin : enable (role admin)
+```
+
+There is no "deleted" state: accounts are disabled, so audit records always name a real user.
+A password reset (policy-checked) is a self-transition in either active state.
+Covered by `tests/test_users_api.py` and `test_r7_4_bootstrap_*`.
