@@ -29,6 +29,12 @@ Credentials are deliberately outside the device table. The current lab adapter l
   `/api/v1/users/*`. Refusals are audited as `access.denied` / `refused` with detail
   `"<METHOD> <path>"`. Logins are audited as `auth.login` (`succeeded`/`failed`), logouts as
   `auth.logout`.
+- Accounts (admin only, including listing): `GET /api/v1/users` → `[{"id", "username", "role",
+  "disabled", "created_at"}]`; `POST /api/v1/users` with `{"username", "password", "role"}` →
+  `201` (`409` duplicate, `422` policy/role); `PATCH /api/v1/users/{id}` with any of
+  `{"role", "disabled", "password"}` → `200` (`404` missing, `409` if it would leave no active
+  admin, `422` policy). There is no delete: disable instead, which revokes sessions at once.
+  Audited as `user.create` / `user.update` (the detail never contains a password).
 - Clients (web UI, scripts) must send the cookie; same-origin browser requests do so
   automatically.
 

@@ -43,6 +43,7 @@ from app.schemas import (
     LogRecordRead,
 )
 from app.syslog import SyslogReceivers, list_logs
+from app.user_routes import router as users_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -125,6 +126,7 @@ app = FastAPI(
 )
 app.include_router(monitoring_router)
 app.include_router(auth_router)
+app.include_router(users_router)
 
 
 @app.get("/health")

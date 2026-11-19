@@ -228,3 +228,43 @@ def enforce_access(request: Request, db: Session = Depends(get_session)) -> None
         record_audit_event(db, user.username, "access.denied", "refused", detail=f"{method} {path}")
         db.commit()
         raise HTTPException(status_code=403, detail=VIEWER_REFUSED)
+
+
+# --- Account management (R7.4) -------------------------------------------------------------------
+
+
+class LastAdminError(ValueError):
+    """The change would leave no active administrator."""
+
+
+def update_user(
+    db: Session,
+    user: User,
+    role: str | None = None,
+    disabled: bool | None = None,
+    password: str | None = None,
+) -> list[str]:
+    """Apply changes and return a description of each (for the audit log; never the password)."""
+    if role is not None and role not in ROLES:
+        raise UserValidationError(f"Unknown role '{role}'. Use 'admin' or 'viewer'.")
+    loses_admin = user.role == "admin" and not user.disabled and (
+        (role is not None and role != "admin") or disabled is True
+    )
+    if loses_admin and active_admin_count(db) <= 1:
+        raise LastAdminError(
+            f"'{user.username}' is the last active administrator. "
+            "Make another user an admin first."
+        )
+    changes = []
+    if role is not None and role != user.role:
+        user.role = role
+        changes.append(f"role -> {role}")
+    if disabled is not None and disabled != user.disabled:
+        user.disabled = disabled
+        changes.append("disabled" if disabled else "enabled")
+    if password is not None:
+        validate_password(password, user.username)
+        user.password_hash = hash_password(password)
+        changes.append("password reset")
+    db.flush()
+    return changes

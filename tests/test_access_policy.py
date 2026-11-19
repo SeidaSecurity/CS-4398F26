@@ -17,7 +17,7 @@ from app.models import AuditRecord, Device
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 PUBLIC = {("POST", "/api/v1/auth/login"), ("POST", "/api/v1/auth/logout")}
 ADMIN_ONLY_READ_PREFIXES = ("/api/v1/users",)
-MIN_EXPECTED_OPERATIONS = 26  # 23 before auth + login/logout/me; guards against a partial walk
+MIN_EXPECTED_OPERATIONS = 29  # 23 before auth + login/logout/me + users list/create/update
 
 
 def _operations():
