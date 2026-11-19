@@ -3,7 +3,9 @@ import type {
   ConfigTemplate, ConfigTemplateCreate, ConfigTemplateRenderRequest,
   ConfigVersionDetail, Device, DeviceCreate, DeviceMetrics, DeviceStatus,
   Interface, LogQuery, LogRecord, NetworkMetrics, TimeWindow, TopologyLink,
+  CurrentUser, UserAccount, UserCreate, UserUpdate,
 } from './types'
+import { UNAUTHORIZED_EVENT } from './session'
 
 const base = '/api/v1'
 
@@ -12,6 +14,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     ...init,
     headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...init.headers },
   })
+  if (response.status === 401 && path !== '/auth/login') {
+    // Session missing or expired: tell the app to show the Login screen (R7.1).
+    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
+  }
   if (!response.ok) {
     const payload: unknown = await response.json().catch(() => null)
     const detail = payload && typeof payload === 'object' && 'detail' in payload
@@ -119,4 +125,30 @@ export function getNetworkMetrics(window: TimeWindow): Promise<NetworkMetrics> {
 
 export function getDeviceMetrics(deviceId: number, window: TimeWindow): Promise<DeviceMetrics> {
   return request(`/monitoring/devices/${deviceId}/metrics?${new URLSearchParams({ window })}`)
+}
+
+// --- Authentication and accounts (R7.1, R7.4; ADR-0005) ---------------------------------------
+
+export function login(username: string, password: string): Promise<CurrentUser> {
+  return request('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) })
+}
+
+export function logout(): Promise<void> {
+  return request('/auth/logout', { method: 'POST' })
+}
+
+export function me(): Promise<CurrentUser> {
+  return request('/auth/me')
+}
+
+export function listUsers(): Promise<UserAccount[]> {
+  return request('/users')
+}
+
+export function createUser(payload: UserCreate): Promise<UserAccount> {
+  return request('/users', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export function updateUser(userId: number, patch: UserUpdate): Promise<UserAccount> {
+  return request(`/users/${userId}`, { method: 'PATCH', body: JSON.stringify(patch) })
 }

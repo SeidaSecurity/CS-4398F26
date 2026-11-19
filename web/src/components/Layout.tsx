@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { Dispatch, ReactNode, SetStateAction } from 'react'
 import { useLocation } from 'react-router-dom'
-import { nav } from '../nav'
+import { useVisibleNav } from '../nav'
 import Sidebar from './Sidebar'
 import styles from './Layout.module.css'
 
@@ -22,6 +22,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const [panel, setPanel] = useState<ReactNode>(null)
   const hasPanel = panel !== null && panel !== undefined && panel !== false
   const { pathname } = useLocation()
+  const nav = useVisibleNav()
   const currentItem = nav.flatMap((group) => group.items).find((item) => item.path === pathname)
   const Icon = currentItem?.icon
 

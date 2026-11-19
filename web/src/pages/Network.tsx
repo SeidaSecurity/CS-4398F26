@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { ArrowsClockwise, Check, Clock, Cpu, DownloadSimple, HardDrives, Info, Play, Warning, X } from '@phosphor-icons/react'
 import { api, useApi } from '../api'
 import type { TimeWindow } from '../api'
+import { useAuth } from '../auth'
 import { RightPanel } from '../components/Layout'
 import { Button, ChartSection, FilterBar, IconButton, PanelSection, Pill, Select, StatRow, TimeSeries, ToolCard } from '../components/ui'
 import { formatBps, relativeTime, windowLabels } from '../lib/format'
@@ -19,6 +20,7 @@ function niceMaximum(max: number): number {
 }
 
 export default function Network() {
+  const { isAdmin } = useAuth() // viewers see no write controls (R7.2)
   const [searchParams, setSearchParams] = useSearchParams()
   const scope = searchParams.get('device') ?? 'all'
   const setScope = (value: string) => setSearchParams(params => {
@@ -163,7 +165,7 @@ export default function Network() {
             </div>
           ))}
         </PanelSection>}
-        <PanelSection title="Config backup" icon={DownloadSimple}>
+        {isAdmin && <PanelSection title="Config backup" icon={DownloadSimple}>
           <div style={{ fontSize: 12, lineHeight: '16px', color: 'var(--gray-600)' }}>Save a device's running configuration as a new version.</div>
           <ToolCard title="Run a backup">
             <div>
@@ -174,7 +176,7 @@ export default function Network() {
               {backupResult && <div role="status" style={{ marginTop: 8, padding: '4px 8px', borderRadius: 6, fontSize: 12, color: backupResult.success ? 'var(--green-800)' : 'var(--red-800)', background: backupResult.success ? 'var(--green-50)' : 'var(--red-50)' }}>{backupResult.message}</div>}
             </div>
           </ToolCard>
-        </PanelSection>
+        </PanelSection>}
       </RightPanel>
     </>
   )

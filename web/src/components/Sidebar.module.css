@@ -1,4 +1,6 @@
 .sidebar {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   overflow: auto;
   background: var(--gray-50);
@@ -185,4 +187,44 @@
 .highlighted {
   color: var(--brand-800);
   background: var(--brand-50);
+}
+
+/* Signed-in user and logout (R7.1) */
+.account {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--stroke-pane);
+  font-size: 12px;
+}
+
+.accountName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountRole {
+  color: var(--gray-600);
+}
+
+.logout {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--gray-700);
+  font: inherit;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.logout:hover {
+  background: var(--gray-100);
 }

@@ -81,10 +81,10 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 
 | ID | Pri | Status | Implementation | Unit test | Acceptance | Gap / note |
 |---|---|---|---|---|---|---|
-| R7.1 Auth required | E | ✅ | `auth.enforce_access` (app-wide), `auth.current_user`, `auth_routes.py` | `test_access_policy.py` (walks all OpenAPI operations), `test_auth_api.py::test_r7_1_*`, `test_auth.py::test_r7_1_*` | AT-10 | Back end done; Login screen pending (auth increment 7) |
-| R7.2 Role enforcement | E | ✅ | `auth.enforce_access`: viewer gets 403 on every non-GET request, audited | `test_r7_2_every_write_route_rejects_a_viewer`, `test_r7_2_viewer_refusal_changes_nothing_and_is_audited` | AT-10 | UI hiding of write controls pending (auth increment 7) |
+| R7.1 Auth required | E | ✅ | `auth.enforce_access` (app-wide), `auth.current_user`, `auth_routes.py` | `test_access_policy.py` (walks all OpenAPI operations), `test_auth_api.py::test_r7_1_*`, `test_auth.py::test_r7_1_*` | AT-10 | Back end + Login screen (`web/src/pages/Login.tsx`, `auth.tsx`); 401 anywhere returns to Login |
+| R7.2 Role enforcement | E | ✅ | `auth.enforce_access`: viewer gets 403 on every non-GET request, audited | `test_r7_2_every_write_route_rejects_a_viewer`, `test_r7_2_viewer_refusal_changes_nothing_and_is_audited` | AT-10 | UI hides Push, Accounts, and write buttons for viewers (`nav.tsx` `adminOnly`, `isAdmin` in pages); server still enforces |
 | R7.3 Password storage | E | ✅ | `app/auth.py` (`hash_password`, `validate_password`), `app/common_passwords.py` | `test_auth.py::test_r7_3_*` (length boundaries 7/8/64/65, common list, username, salt) | AT-10 | argon2id hashes; NIST 800-63B rules |
-| R7.4 Account management | E | ✅ | `auth.update_user`, `auth.create_user`, `auth.bootstrap_admin`, `user_routes.py` | `test_users_api.py::test_r7_4_*` (create, role change, disable revokes sessions, last-admin protection, password reset), `test_r7_4_bootstrap_*` | AT-10 | Accounts screen pending (auth increment 7) |
+| R7.4 Account management | E | ✅ | `auth.update_user`, `auth.create_user`, `auth.bootstrap_admin`, `user_routes.py` | `test_users_api.py::test_r7_4_*` (create, role change, disable revokes sessions, last-admin protection, password reset), `test_r7_4_bootstrap_*` | AT-10 | Accounts screen: `web/src/pages/Accounts.tsx` (disable/demote ask for confirmation) |
 | R7.5 Session expiry | D | ❌ | — | — | — | — |
 
 ## 4.8 DPI (Track C) — Minimal: R8.1–R8.5 ⏸ deferred (start only after M2)
