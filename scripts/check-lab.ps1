@@ -16,20 +16,32 @@ param(
     [string[]]$Routers = @('192.168.198.11', '192.168.198.12', '192.168.198.13', '192.168.198.14'),
     [string[]]$ExpectedDown = @('192.168.198.14'),
     [string]$SyslogTarget = '127.0.0.1',
+    [string]$EnvFile = '',   # default: .env.lab in the repo root (set below)
     [int]$SyslogPort = 514
 )
 
 $ErrorActionPreference = 'Stop'
+# Windows PowerShell 5.1 leaves $PSScriptRoot empty inside param() defaults, so resolve it here.
+if (-not $EnvFile) { $EnvFile = Join-Path (Split-Path -Parent $PSScriptRoot) '.env.lab' }
 $results = New-Object System.Collections.Generic.List[object]
 
 function Add-Result([string]$Check, [string]$Target, [string]$Expected, [string]$Actual, [string]$Result, [string]$Hint = '') {
     $results.Add([pscustomobject]@{ Check = $Check; Target = $Target; Expected = $Expected; Actual = $Actual; Result = $Result; Hint = $Hint })
 }
-function Get-Api([string]$Path) { Invoke-RestMethod -Uri "$ApiBase$Path" -TimeoutSec 5 }
+# The API requires login (R7.1, ADR-0005): all calls share this session, which holds the cookie.
+$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+function Get-Api([string]$Path) { Invoke-RestMethod -Uri "$ApiBase$Path" -TimeoutSec 5 -WebSession $session }
 function Get-ApiList([string]$Path) {
     # Windows PowerShell 5.1 returns a JSON array as ONE object; enumerate it so @() counts items.
-    $response = Invoke-RestMethod -Uri "$ApiBase$Path" -TimeoutSec 5
+    $response = Invoke-RestMethod -Uri "$ApiBase$Path" -TimeoutSec 5 -WebSession $session
     foreach ($item in $response) { $item }
+}
+function Read-EnvValue([string]$Name) {
+    if (-not (Test-Path $EnvFile)) { return $null }
+    foreach ($line in Get-Content $EnvFile) {
+        if ($line -match "^\s*$Name\s*=(.*)$") { return $Matches[1].Trim().Trim('"').Trim("'") }
+    }
+    return $null
 }
 function Test-Tcp([string]$HostName, [int]$Port, [int]$TimeoutMs = 2000) {
     $client = New-Object System.Net.Sockets.TcpClient
@@ -47,6 +59,27 @@ try {
 } catch {
     Add-Result 'API health' $ApiBase 'ok' 'no response' 'FAIL' 'Start the app: scripts\run-lab.ps1'
 }
+
+# 1b. Log in as the admin from .env.lab (values read here, never printed) ----------------------
+$loggedIn = $false
+if ($apiUp) {
+    $adminUser = Read-EnvValue 'ADMIN_USERNAME'
+    $adminPassword = Read-EnvValue 'ADMIN_PASSWORD'
+    if (-not $adminUser -or -not $adminPassword) {
+        Add-Result 'API login (admin)' $ApiBase 'logged in' 'ADMIN_* not in .env.lab' 'FAIL' 'Add ADMIN_USERNAME and ADMIN_PASSWORD to .env.lab'
+    } else {
+        $body = @{ username = $adminUser; password = $adminPassword } | ConvertTo-Json
+        try {
+            $me = Invoke-RestMethod -Method Post -Uri "$ApiBase/api/v1/auth/login" -Body $body -ContentType 'application/json' -WebSession $session -TimeoutSec 5
+            $loggedIn = $me.role -eq 'admin'
+            Add-Result 'API login (admin)' $ApiBase 'logged in as admin' "logged in as $($me.role)" ($(if ($loggedIn) { 'PASS' } else { 'FAIL' })) 'The ADMIN_USERNAME account is not an admin'
+        } catch {
+            Add-Result 'API login (admin)' $ApiBase 'logged in as admin' 'login refused' 'FAIL' 'Wrong ADMIN_* values, or the admin was never created (see the API window for "Admin bootstrap")'
+        }
+        $body = $null; $adminPassword = $null
+    }
+}
+$apiUp = $apiUp -and $loggedIn   # the checks below need an authenticated session
 
 # 2. Syslog round trip (local) -----------------------------------------------------------------
 if ($apiUp) {
@@ -71,7 +104,7 @@ if ($apiUp) {
         Add-Result 'Syslog round trip' "${SyslogTarget}:$SyslogPort" 'stored, parsed' 'not found in 5 s' 'FAIL' 'Is SYSLOG_ENABLED=true in .env.lab? Is another program using port 514?'
     }
 } else {
-    Add-Result 'Syslog round trip' "${SyslogTarget}:$SyslogPort" 'stored, parsed' 'skipped (API down)' 'FAIL'
+    Add-Result 'Syslog round trip' "${SyslogTarget}:$SyslogPort" 'stored, parsed' 'skipped (API down or not logged in)' 'FAIL'
 }
 
 # 3. Firewall: the local test above passes even if routers are blocked (checkpoint D) ----------
@@ -148,6 +181,10 @@ if ($apiUp) {
             Add-Result 'App monitoring state' "$ip ($($device.name))" $wantState $status.state 'FAIL' $hint
         }
     }
+}
+
+if ($loggedIn) {
+    try { [void](Invoke-RestMethod -Method Post -Uri "$ApiBase/api/v1/auth/logout" -WebSession $session -TimeoutSec 5) } catch { }
 }
 
 # --- Report -------------------------------------------------------------------------------------

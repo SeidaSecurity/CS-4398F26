@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { CaretDown, MagnifyingGlass } from '@phosphor-icons/react'
+import { CaretDown, MagnifyingGlass, SignOut } from '@phosphor-icons/react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { nav } from '../nav'
+import { useAuth } from '../auth'
+import { useVisibleNav } from '../nav'
 import styles from './Sidebar.module.css'
 
 export default function Sidebar() {
@@ -11,6 +12,9 @@ export default function Sidebar() {
   const [highlightedIndex, setHighlightedIndex] = useState(0)
   const dialog = useRef<HTMLDialogElement>(null)
   const navigate = useNavigate()
+  const nav = useVisibleNav()
+  const { user, logout } = useAuth()
+  const initials = (user?.username ?? '?').slice(0, 2).toUpperCase()
   const items = nav.flatMap((group) => group.items)
   const filtered = items.filter((item) =>
     item.label.toLowerCase().includes(query.trim().toLowerCase()),
@@ -48,7 +52,7 @@ export default function Sidebar() {
       <header className={styles.header}>
         <div className={styles.identity}>
           <span className={styles.wordmark}>netmgr</span>
-          <span className={styles.avatar}>OP</span>
+          <span className={styles.avatar} title={user ? `${user.username} (${user.role})` : undefined}>{initials}</span>
         </div>
         <button
           className={styles.search}
@@ -104,6 +108,16 @@ export default function Sidebar() {
           </section>
         ))}
       </nav>
+      {user && (
+        <footer className={styles.account}>
+          <span className={styles.accountName}>
+            {user.username} <span className={styles.accountRole}>· {user.role}</span>
+          </span>
+          <button type="button" className={styles.logout} onClick={() => void logout()}>
+            <SignOut size={14} aria-hidden="true" /> Log out
+          </button>
+        </footer>
+      )}
       <dialog
         ref={dialog}
         className={styles.palette}

@@ -44,7 +44,6 @@ export interface ConfigTemplateRenderRequest {
 export interface ConfigPushRequest {
   device_ids: number[]
   configuration: string
-  operator?: string
 }
 
 /** Per-device push/rollback outcome; mirrors ChangeStatus in app/schemas.py (SRS 4.3.4 step 5). */
@@ -135,4 +134,30 @@ export interface DeviceMetrics {
   memory: MetricPoint[]
   throughput_in_bps: MetricPoint[]
   throughput_out_bps: MetricPoint[]
+}
+
+/** Signed-in user (GET /auth/me, POST /auth/login). Roles per SRS 2.3 / ADR-0005. */
+export type Role = 'admin' | 'viewer'
+
+export interface CurrentUser {
+  id: number
+  username: string
+  role: Role
+  created_at: string
+}
+
+export interface UserAccount extends CurrentUser {
+  disabled: boolean
+}
+
+export interface UserCreate {
+  username: string
+  password: string
+  role: Role
+}
+
+export interface UserUpdate {
+  role?: Role
+  disabled?: boolean
+  password?: string
 }

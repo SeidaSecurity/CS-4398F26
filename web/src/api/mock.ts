@@ -3,6 +3,7 @@ import type {
   ConfigTemplate, ConfigTemplateCreate, ConfigTemplateRenderRequest,
   ConfigVersionDetail, Device, DeviceCreate, DeviceMetrics, DeviceStatus,
   Interface, LogQuery, LogRecord, MetricPoint, NetworkMetrics, TimeWindow, TopologyLink,
+  CurrentUser, UserAccount, UserCreate, UserUpdate,
 } from './types'
 import { deviceKind } from '../components/devices'
 
@@ -289,9 +290,14 @@ export async function deleteDevice(deviceId: number): Promise<void> {
   versions.delete(deviceId)
 }
 
-export async function retrieveConfig(deviceId: number, operator: string = 'unknown'): Promise<ConfigVersion> {
+// The real server takes the operator from the session; mock mode uses the mock signed-in user.
+function mockOperator(): string {
+  return mockSession?.username ?? 'admin'
+}
+
+export async function retrieveConfig(deviceId: number): Promise<ConfigVersion> {
   await delay()
-  validateText(operator, 120, 'operator')
+  const operator = mockOperator()
   const device = requireDevice(deviceId)
   if (statuses.find(status => status.device_id === deviceId)?.state === 'down') {
     throw new Error('Configuration retrieval failed: Connection timed out')
@@ -320,8 +326,7 @@ export async function pushConfig(req: ConfigPushRequest): Promise<ConfigPushResu
   await delay()
   if (!req.device_ids.length) throw new Error('device_ids must contain at least one device')
   validateText(req.configuration, Number.MAX_SAFE_INTEGER, 'configuration')
-  const operator = req.operator ?? 'unknown'
-  validateText(operator, 120, 'operator')
+  const operator = mockOperator()
   return [...new Set(req.device_ids)].map(deviceId => {
     const device = devices.find(device => device.id === deviceId)
     const result: ConfigPushResult = {
@@ -355,11 +360,9 @@ function unreachableMessage(device: Device): string {
     + 'Check that the device is powered on and SSH is enabled.'
 }
 
-export async function restoreConfig(
-  deviceId: number, version: number, operator: string = 'unknown',
-): Promise<ConfigPushResult> {
+export async function restoreConfig(deviceId: number, version: number): Promise<ConfigPushResult> {
   await delay()
-  validateText(operator, 120, 'operator')
+  const operator = mockOperator()
   const device = requireDevice(deviceId)
   const target = versions.get(deviceId)?.find(record => record.version === version)
   if (!target) throw new Error('Configuration version not found')
@@ -596,4 +599,80 @@ export async function getDeviceMetrics(deviceId: number, window: TimeWindow): Pr
   await delay()
   requireDevice(deviceId)
   return deviceMetrics(deviceId, window)
+}
+
+// --- Authentication and accounts (mock) -------------------------------------------------------
+// Two built-in accounts; any password works in mock mode (the Login screen says so).
+
+const mockUsers: UserAccount[] = [
+  { id: 1, username: 'admin', role: 'admin', disabled: false, created_at: iso(Date.now() - 86_400_000) },
+  { id: 2, username: 'viewer', role: 'viewer', disabled: false, created_at: iso(Date.now() - 86_400_000) },
+]
+let mockSession: CurrentUser | null = null
+const loginFailed = 'Invalid username or password.'
+
+function asCurrentUser({ id, username, role, created_at }: UserAccount): CurrentUser {
+  return { id, username, role, created_at }
+}
+
+export async function login(username: string, password: string): Promise<CurrentUser> {
+  await delay()
+  const user = mockUsers.find(candidate => candidate.username.toLowerCase() === username.toLowerCase())
+  if (!user || user.disabled || !password) {
+    recordAudit(username, 'auth.login', 'failed', null, 'Invalid credentials')
+    throw new Error(loginFailed)
+  }
+  mockSession = asCurrentUser(user)
+  recordAudit(user.username, 'auth.login', 'succeeded', null, '')
+  return copy(mockSession)
+}
+
+export async function logout(): Promise<void> {
+  await delay()
+  if (mockSession) recordAudit(mockSession.username, 'auth.logout', 'succeeded', null, '')
+  mockSession = null
+}
+
+export async function me(): Promise<CurrentUser> {
+  await delay()
+  if (!mockSession) throw new Error('You are not logged in. Log in and try again.')
+  return copy(mockSession)
+}
+
+export async function listUsers(): Promise<UserAccount[]> {
+  await delay()
+  return copy([...mockUsers].sort((a, b) => a.username.localeCompare(b.username)))
+}
+
+export async function createUser(payload: UserCreate): Promise<UserAccount> {
+  await delay()
+  if (payload.password.length < 8 || payload.password.length > 64) {
+    throw new Error('Password must be 8-64 characters long; a passphrase of several words works well.')
+  }
+  if (mockUsers.some(user => user.username.toLowerCase() === payload.username.toLowerCase())) {
+    throw new Error(`A user named '${payload.username}' already exists.`)
+  }
+  const user: UserAccount = {
+    id: Math.max(...mockUsers.map(u => u.id)) + 1, username: payload.username, role: payload.role,
+    disabled: false, created_at: iso(Date.now()),
+  }
+  mockUsers.push(user)
+  recordAudit(mockOperator(), 'user.create', 'succeeded', null, `Created ${user.role} '${user.username}'`)
+  return copy(user)
+}
+
+export async function updateUser(userId: number, patch: UserUpdate): Promise<UserAccount> {
+  await delay()
+  const user = mockUsers.find(candidate => candidate.id === userId)
+  if (!user) throw new Error('User not found. Refresh the list.')
+  const activeAdmins = mockUsers.filter(u => u.role === 'admin' && !u.disabled).length
+  const losesAdmin = user.role === 'admin' && !user.disabled
+    && ((patch.role !== undefined && patch.role !== 'admin') || patch.disabled === true)
+  if (losesAdmin && activeAdmins <= 1) {
+    throw new Error(`'${user.username}' is the last active administrator. Make another user an admin first.`)
+  }
+  if (patch.role !== undefined) user.role = patch.role
+  if (patch.disabled !== undefined) user.disabled = patch.disabled
+  recordAudit(mockOperator(), 'user.update', 'succeeded', null, `User '${user.username}' updated`)
+  return copy(user)
 }

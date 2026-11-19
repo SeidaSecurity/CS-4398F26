@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Article, ChartLine, Check, ClockCounterClockwise, Graph, HardDrives, Info, PencilSimple, Plugs, Plus, Pulse, Stack, Trash, X } from '@phosphor-icons/react'
 import { api, useApi } from '../api'
 import type { Device, DeviceStatus } from '../api'
+import { useAuth } from '../auth'
 import { RightPanel } from '../components/Layout'
 import { DeviceIllustration, PortGrid, Topology, deviceKind } from '../components/devices'
 import { Button, ConfirmDialog, DataTable, FilterBar, IconButton, PanelSection, Pill, Select, StatRow, TextInput } from '../components/ui'
@@ -16,6 +17,7 @@ function statusPill(state: DeviceStatus['state'] | undefined, size: 'default' | 
 }
 
 export default function Devices() {
+  const { isAdmin } = useAuth() // viewers see no write controls (R7.2)
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const deviceParam = searchParams.get('device')
@@ -168,7 +170,7 @@ export default function Devices() {
           { value: 'up', label: 'Up' },
           { value: 'down', label: 'Down' },
         ]} />
-        <Button variant="primary" icon={Plus} onClick={openAdd} disabled={submitting}>Add device</Button>
+        {isAdmin && <Button variant="primary" icon={Plus} onClick={openAdd} disabled={submitting}>Add device</Button>}
       </FilterBar>
       {error && <div role="alert" className={styles.error}>{error.message}</div>}
       <div className={styles.content}>
@@ -205,10 +207,10 @@ export default function Devices() {
               <StatRow caption="SSH port" value={selected.ssh_port} />
               <StatRow caption="Last poll" value={selectedStatus && relativeTime(selectedStatus.last_poll_at)} />
               <StatRow caption="Added" value={formatTime(selected.created_at)} />
-              <div className={styles.actions}>
+              {isAdmin && <div className={styles.actions}>
                 <Button icon={PencilSimple} onClick={openEdit} disabled={submitting}>Edit</Button>
                 <Button icon={Trash} onClick={() => { setDeleteError(null); setDeleting(selected) }} disabled={submitting}>Delete</Button>
-              </div>
+              </div>}
               {deleteError && <div role="alert" className={styles.addError}>{deleteError}</div>}
             </PanelSection>
             <PanelSection title="Ports" icon={Plugs} action={<span className={styles.portCount}>{portsUp}/{interfaces.length} up</span>}>

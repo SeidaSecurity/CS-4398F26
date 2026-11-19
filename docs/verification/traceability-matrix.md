@@ -37,7 +37,7 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 |---|---|---|---|---|---|---|
 | R3.1 Push | E | ✅ | `ConfigurationService.push`, `NetmikoConnector.push` | `test_push_saves_versions_and_continues_after_device_failure` | AT-04 | Push by group not possible until R1.5 |
 | R3.2 Retrieval | E | ✅ | `ConfigurationService.retrieve`; pre-push capture | `test_push_saves_versions_*`, `test_r3_2_retrieve_failure_returns_actionable_502_and_is_audited` | AT-04 | — |
-| R3.3 Version history | E | 🟡 | `save_config_version` | same as above | AT-05 | `operator` is caller-supplied text; not a verified identity until R7.1 |
+| R3.3 Version history | E | ✅ | `save_config_version`; operator = logged-in user (`auth.current_user`) | `test_r3_3_identity_comes_from_the_session_not_a_supplied_operator` | AT-05 | Caller-supplied `operator` removed (ADR-0005) |
 | R3.4 Version comparison | E | ✅ | `web/src/lib/diff.ts`, `History.tsx` | — (no diff tests) | AT-05 | Diff is computed in the front end; add unit tests or move to the API |
 | R3.5 Independent failure | E | ✅ | `ConfigurationService._apply_change`, `configuration.DeviceError` hierarchy, `find_rejection` | `test_push_saves_versions_*`, `test_r3_5_unreachable_*`, `test_r3_5_failed_read_back_*`, `test_configuration.py` (classification) | AT-04 | Statuses: succeeded / unverified / rejected / unreachable / credentials / not_found / failed (P-002) |
 | R3.6 Rollback | D | ✅ | `ConfigurationService.rollback` | `test_restore_*` (3 tests) | AT-05 | Replays the config; leaves in place any lines added later (see contracts.md) |
@@ -50,7 +50,7 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 | R4.1 UDP+TCP 514 | E | ✅ | `syslog.SyslogReceivers` | `test_udp_and_tcp_receivers_forward_messages` | AT-06 | — |
 | R4.2 Parsing | E | ✅ | `syslog.parse_syslog`, `CISCO_IOS`, `_cisco_timestamp` | `test_parse_*`, `test_preserve_*`, `test_r4_2_*` (real IOSv samples from the lab) | AT-06 | Lab found Cisco IOS messages stored unparsed (2026-11-19); fixed the same day. Re-verify on the lab |
 | R4.3 Search/filter | E | ✅ | `syslog.list_logs`, `escape_like`; sender-IP source fallback | `test_log_search_filters_records`, `test_r4_3_*` | AT-06 | Source is the hostname, or the sender IP when the message names none; still not linked to a device record |
-| R4.4 Audit log | E | 🟡 | `record_audit_event` | push/restore tests, `test_r4_4_template_changes_are_audited`, `test_r4_4_duplicate_template_name_is_not_audited` | AT-07 | Templates now audited (P-002); logins/accounts pending R7 |
+| R4.4 Audit log | E | ✅ | `record_audit_event`; auth events in `auth_routes.py`, `user_routes.py`, `auth.enforce_access` | push/restore tests, `test_r4_4_*`, `test_r7_4_*` (`user.create`/`user.update`), `test_r7_2_viewer_refusal_*` | AT-07 | Configuration changes, logins, account changes and refusals all audited |
 | R4.5 Retention | D | ❌ | — | — | — | — |
 | R4.6 Export | M | ⏸ | — | — | — | — |
 
@@ -81,10 +81,10 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 
 | ID | Pri | Status | Implementation | Unit test | Acceptance | Gap / note |
 |---|---|---|---|---|---|---|
-| R7.1 Auth required | E | ❌ | — | — | AT-10 | Every endpoint is currently open |
-| R7.2 Role enforcement | E | ❌ | — | — | AT-10 | — |
-| R7.3 Password storage | E | ❌ | — | — | — | — |
-| R7.4 Account management | E | ❌ | — | — | — | — |
+| R7.1 Auth required | E | ✅ | `auth.enforce_access` (app-wide), `auth.current_user`, `auth_routes.py` | `test_access_policy.py` (walks all OpenAPI operations), `test_auth_api.py::test_r7_1_*`, `test_auth.py::test_r7_1_*` | AT-10 | Back end + Login screen (`web/src/pages/Login.tsx`, `auth.tsx`); 401 anywhere returns to Login |
+| R7.2 Role enforcement | E | ✅ | `auth.enforce_access`: viewer gets 403 on every non-GET request, audited | `test_r7_2_every_write_route_rejects_a_viewer`, `test_r7_2_viewer_refusal_changes_nothing_and_is_audited` | AT-10 | UI hides Push, Accounts, and write buttons for viewers (`nav.tsx` `adminOnly`, `isAdmin` in pages); server still enforces |
+| R7.3 Password storage | E | ✅ | `app/auth.py` (`hash_password`, `validate_password`), `app/common_passwords.py` | `test_auth.py::test_r7_3_*` (length boundaries 7/8/64/65, common list, username, salt) | AT-10 | argon2id hashes; NIST 800-63B rules |
+| R7.4 Account management | E | ✅ | `auth.update_user`, `auth.create_user`, `auth.bootstrap_admin`, `user_routes.py` | `test_users_api.py::test_r7_4_*` (create, role change, disable revokes sessions, last-admin protection, password reset), `test_r7_4_bootstrap_*` | AT-10 | Accounts screen: `web/src/pages/Accounts.tsx` (disable/demote ask for confirmation) |
 | R7.5 Session expiry | D | ❌ | — | — | — | — |
 
 ## 4.8 DPI (Track C) — Minimal: R8.1–R8.5 ⏸ deferred (start only after M2)
@@ -97,7 +97,7 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 | NFR-2 DHCP < 500 ms @ 20 clients | ❌ | Depends on R6 |
 | NFR-3 DNS < 50 ms | ❌ | Depends on R5 |
 | NFR-4 1,000 logs/min, no loss | ❌ not measured | Script synthetic syslog load; count stored rows |
-| NFR-5 Salted password hashes | ❌ | Depends on R7.3 |
+| NFR-5 Salted password hashes | ✅ | argon2id with a random salt per hash (`test_r7_3_hash_is_salted_and_not_the_password`) |
 | NFR-6 Credentials encrypted, key outside DB | ❌ | Env-var plaintext today |
 | NFR-7 HTTPS | ❌ | Plain HTTP on :8000 |
 | NFR-8 Audit not modifiable via UI | ✅ | Only `GET /api/v1/audit` exists; no update/delete route |

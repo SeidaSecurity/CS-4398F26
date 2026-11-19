@@ -10,11 +10,19 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.auth import (
+    PasswordPolicyError,
+    UserValidationError,
+    bootstrap_admin,
+    current_user,
+    enforce_access,
+)
+from app.auth_routes import router as auth_router
 from app.config_service import ConfigurationService
 from app.config_templates import TemplateRenderError, render_template
 from app.configuration import DeviceError, NetmikoConnector, record_audit_event
 from app.database import Base, SessionLocal, engine, get_session
-from app.models import AuditRecord, ConfigTemplate, ConfigVersion, Device, utc_now
+from app.models import AuditRecord, ConfigTemplate, ConfigVersion, Device, User, utc_now
 from app.monitoring import router as monitoring_router
 from app.poller import poll_all
 from app.probes import combined_probe
@@ -35,6 +43,7 @@ from app.schemas import (
     LogRecordRead,
 )
 from app.syslog import SyslogReceivers, list_logs
+from app.user_routes import router as users_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -60,8 +69,28 @@ async def _run_monitoring(interval: float) -> None:
         await asyncio.sleep(interval)
 
 
+def _bootstrap_admin_from_env() -> None:
+    """Create the first admin from env on startup (R7.4); never touches the DB if unset."""
+    log = logging.getLogger(__name__)
+    username, password = os.getenv("ADMIN_USERNAME"), os.getenv("ADMIN_PASSWORD")
+    if not username or not password:
+        log.warning(
+            "ADMIN_USERNAME/ADMIN_PASSWORD are not set, so no first admin will be created. "
+            "If no users exist yet, nobody can log in."
+        )
+        return
+    try:
+        with SessionLocal() as db:
+            outcome = bootstrap_admin(db, username, password)
+            db.commit()
+        log.info("Admin bootstrap: %s", outcome)
+    except (PasswordPolicyError, UserValidationError) as exc:
+        log.error("ADMIN_USERNAME/ADMIN_PASSWORD rejected: %s Fix .env.lab and restart.", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _bootstrap_admin_from_env()
     receivers = None
     if os.getenv("SYSLOG_ENABLED", "false").lower() == "true":
         receivers = SyslogReceivers(
@@ -89,8 +118,15 @@ async def lifespan(app: FastAPI):
                 receivers.stop()
 
 
-app = FastAPI(title="Network Management API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title="Network Management API",
+    version="0.1.0",
+    lifespan=lifespan,
+    dependencies=[Depends(enforce_access)],  # central access policy (R7.1, R7.2)
+)
 app.include_router(monitoring_router)
+app.include_router(auth_router)
+app.include_router(users_router)
 
 
 @app.get("/health")
@@ -101,13 +137,13 @@ def health() -> dict[str, str]:
 @app.post("/api/v1/devices", response_model=DeviceRead, status_code=201)
 def create_device(
     payload: DeviceCreate,
-    operator: str = Query(default="unknown", min_length=1, max_length=120),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
     device = Device(**payload.model_dump())
     session.add(device)
     try:
-        record_audit_event(session, operator, "device.create", "succeeded", device.name)
+        record_audit_event(session, user.username, "device.create", "succeeded", device.name)
         session.commit()
     except IntegrityError as exc:
         session.rollback()
@@ -127,7 +163,7 @@ def get_devices(session: Session = Depends(get_session)):
 def update_device(
     device_id: int,
     payload: DeviceUpdate,
-    operator: str = Query(default="unknown", min_length=1, max_length=120),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
     device = session.get(Device, device_id)
@@ -136,7 +172,7 @@ def update_device(
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(device, field, value)
     try:
-        record_audit_event(session, operator, "device.update", "succeeded", device.name)
+        record_audit_event(session, user.username, "device.update", "succeeded", device.name)
         session.commit()
     except IntegrityError as exc:
         session.rollback()
@@ -150,13 +186,13 @@ def update_device(
 @app.delete("/api/v1/devices/{device_id}", status_code=204)
 def delete_device(
     device_id: int,
-    operator: str = Query(default="unknown", min_length=1, max_length=120),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
     device = session.get(Device, device_id)
     if device is None:
         raise HTTPException(status_code=404, detail="Device not found")
-    record_audit_event(session, operator, "device.delete", "succeeded", device.name)
+    record_audit_event(session, user.username, "device.delete", "succeeded", device.name)
     session.delete(device)
     session.commit()
     return Response(status_code=204)
@@ -165,7 +201,7 @@ def delete_device(
 @app.post("/api/v1/devices/{device_id}/config/retrieve", response_model=ConfigVersionRead)
 def retrieve_configuration(
     device_id: int,
-    operator: str = Query(default="unknown", min_length=1, max_length=120),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
     device = session.get(Device, device_id)
@@ -173,7 +209,7 @@ def retrieve_configuration(
         raise HTTPException(status_code=404, detail="Device not found")
     try:
         return ConfigurationService(session, app.state.device_connector).retrieve(
-            device, operator
+            device, user.username
         )
     except DeviceError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -228,14 +264,18 @@ def list_configuration_templates(session: Session = Depends(get_session)):
 )
 def create_configuration_template(
     payload: ConfigTemplateCreate,
-    operator: str = Query(default="unknown", min_length=1, max_length=120),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
     template = ConfigTemplate(**payload.model_dump())
     session.add(template)
     try:
         record_audit_event(
-            session, operator, "template.create", "succeeded", detail=f"Template '{template.name}'"
+            session,
+            user.username,
+            "template.create",
+            "succeeded",
+            detail=f"Template '{template.name}'",
         )
         session.commit()
     except IntegrityError as exc:
@@ -266,7 +306,7 @@ def render_configuration_template(payload: ConfigTemplateRenderRequest):
 def update_configuration_template(
     template_id: int,
     payload: ConfigTemplateUpdate,
-    operator: str = Query(default="unknown", min_length=1, max_length=120),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
     template = session.get(ConfigTemplate, template_id)
@@ -279,7 +319,7 @@ def update_configuration_template(
     try:
         record_audit_event(
             session,
-            operator,
+            user.username,
             "template.update",
             "succeeded",
             detail=f"Template '{template.name}': changed {', '.join(sorted(changes))}",
@@ -297,14 +337,14 @@ def update_configuration_template(
 @app.delete("/api/v1/configuration-templates/{template_id}", status_code=204)
 def delete_configuration_template(
     template_id: int,
-    operator: str = Query(default="unknown", min_length=1, max_length=120),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
     template = session.get(ConfigTemplate, template_id)
     if template is None:
         raise HTTPException(status_code=404, detail="Configuration template not found")
     record_audit_event(
-        session, operator, "template.delete", "succeeded", detail=f"Template '{template.name}'"
+        session, user.username, "template.delete", "succeeded", detail=f"Template '{template.name}'"
     )
     session.delete(template)
     session.commit()
@@ -318,7 +358,7 @@ def delete_configuration_template(
 def restore_configuration(
     device_id: int,
     version: int,
-    operator: str = Query(default="unknown", min_length=1, max_length=120),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
     device = session.get(Device, device_id)
@@ -333,15 +373,19 @@ def restore_configuration(
     if target is None:
         raise HTTPException(status_code=404, detail="Configuration version not found")
     result = ConfigurationService(session, app.state.device_connector).rollback(
-        device, target, operator
+        device, target, user.username
     )
     return ConfigPushResult(**asdict(result))
 
 
 @app.post("/api/v1/configurations/push", response_model=list[ConfigPushResult])
-def push_configuration(payload: ConfigPushRequest, session: Session = Depends(get_session)):
+def push_configuration(
+    payload: ConfigPushRequest,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
     results = ConfigurationService(session, app.state.device_connector).push(
-        payload.device_ids, payload.configuration, payload.operator
+        payload.device_ids, payload.configuration, user.username
     )
     return [ConfigPushResult(**asdict(result)) for result in results]
 

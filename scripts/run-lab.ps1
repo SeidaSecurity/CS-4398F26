@@ -91,6 +91,28 @@ if ($shadowed.Count -gt 0) {
     Write-Host "WARNING: these are already set in your shell and will override .env.lab: $($shadowed -join ', ')" -ForegroundColor Yellow
     Write-Host '         Clear them with: Remove-Item Env:NAME' -ForegroundColor Yellow
 }
+# Admin account settings (R7.4): check them with the app's OWN password policy, so a rejected
+# password is caught here instead of as a log line after startup (found on the lab, 2026-11-19).
+# Values travel only through environment variables of the child process and are never printed.
+$envValues = @{}
+Get-Content $envFile | ForEach-Object {
+    if ($_ -match '^\s*([A-Z_][A-Z0-9_]*)\s*=(.*)$') { $envValues[$Matches[1]] = $Matches[2].Trim().Trim('"').Trim("'") }
+}
+if (-not $envValues['ADMIN_USERNAME'] -or -not $envValues['ADMIN_PASSWORD']) {
+    Write-Host 'WARNING: ADMIN_USERNAME / ADMIN_PASSWORD are not set in .env.lab. Fine if an admin account' -ForegroundColor Yellow
+    Write-Host '         already exists; otherwise nobody can log in. Add both and restart.' -ForegroundColor Yellow
+} else {
+    $env:NETMGR_CHECK_USER = $envValues['ADMIN_USERNAME']
+    $env:NETMGR_CHECK_PASSWORD = $envValues['ADMIN_PASSWORD']
+    $policyCheck = "import os`nfrom app.auth import PasswordPolicyError, validate_password`ntry:`n    validate_password(os.environ['NETMGR_CHECK_PASSWORD'], os.environ['NETMGR_CHECK_USER'])`nexcept PasswordPolicyError as exc:`n    print(exc)"
+    $ErrorActionPreference = 'Continue'
+    $policyError = (& $Py -c $policyCheck 2>&1 | Out-String).Trim()
+    $ErrorActionPreference = 'Stop'
+    Remove-Item Env:NETMGR_CHECK_USER, Env:NETMGR_CHECK_PASSWORD
+    if ($policyError) {
+        Stop-WithError "ADMIN_PASSWORD in .env.lab would be rejected: $policyError" 'Edit ADMIN_PASSWORD in .env.lab (8-64 characters, not a common password, not the username) and rerun.'
+    }
+}
 Write-Host "    OK ($($keys.Count) keys; values not shown)"
 
 # --- Node / web UI --------------------------------------------------------------------------

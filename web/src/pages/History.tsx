@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { ArrowCounterClockwise, ArrowRight, ArrowsClockwise, Check, Clock, ClockCounterClockwise, DownloadSimple, HardDrives } from '@phosphor-icons/react'
 import { api, useApi } from '../api'
 import type { ConfigPushResult, ConfigVersion } from '../api'
+import { useAuth } from '../auth'
 import { RightPanel } from '../components/Layout'
 import { ConfirmDialog, FilterBar, IconButton, PanelSection, Pill, SectionHeader, Select } from '../components/ui'
 import { sideBySide } from '../lib/diff'
@@ -20,6 +21,7 @@ function metadata(version: ConfigVersion): string {
 }
 
 export default function History() {
+  const { isAdmin } = useAuth() // viewers see no write controls (R7.2)
   const [searchParams, setSearchParams] = useSearchParams()
   const devicesQuery = useApi(() => api.listDevices(), [])
   const devices = [...(devicesQuery.data ?? [])].sort((a, b) => a.name.localeCompare(b.name))
@@ -94,7 +96,7 @@ export default function History() {
     setRetrieving(true)
     setRetrieveError(null)
     try {
-      const result = await api.retrieveConfig(deviceId, 'operator')
+      const result = await api.retrieveConfig(deviceId)
       const updatedVersions = await api.listConfigVersions(deviceId)
       if (activeDevice.current !== deviceId) return
       const previous = updatedVersions.filter(version => version.version < result.version)
@@ -118,7 +120,7 @@ export default function History() {
     setRestoreTarget(null)
     setRestoreResult(null)
     try {
-      const result = await api.restoreConfig(deviceId, targetVersion, 'operator')
+      const result = await api.restoreConfig(deviceId, targetVersion)
       if (activeDevice.current !== deviceId) return
       if (result.status !== 'succeeded' || result.after_version === null) {
         setRestoreResult({
@@ -202,9 +204,9 @@ export default function History() {
         </div>
       </div>}
       <RightPanel>
-        <PanelSection title="Versions" icon={ClockCounterClockwise} action={
+        <PanelSection title="Versions" icon={ClockCounterClockwise} action={isAdmin ? (
           <IconButton size="small" icon={DownloadSimple} label="Retrieve running config" onClick={retrieve} disabled={deviceId === undefined || retrieving || restoring} />
-        }>
+        ) : undefined}>
           <div className={styles.versions}>
             {versions.map((version, index) => <div key={version.id} className={styles.versionRow}>
               <button type="button"
@@ -215,7 +217,7 @@ export default function History() {
                 <Pill tone="gray" size="small" icon={version.source === 'push' ? Check : Clock}>{version.source}</Pill>
                 <span className={styles.time}>{relativeTime(version.created_at)}</span>
               </button>
-              <IconButton
+              {isAdmin && <IconButton
                 size="small"
                 icon={ArrowCounterClockwise}
                 label={`Restore version ${version.version}`}
@@ -225,7 +227,7 @@ export default function History() {
                   setRestoreResult(null)
                   setRestoreTarget(version.version)
                 }}
-              />
+              />}
             </div>)}
           </div>
           {currentRestoreResult?.result?.status === 'succeeded' && (

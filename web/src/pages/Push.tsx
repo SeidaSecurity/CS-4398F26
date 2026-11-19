@@ -4,7 +4,7 @@ import { Check, HardDrives, ListChecks, Plus, Stack, Trash, UploadSimple, X } fr
 import { api, useApi } from '../api'
 import type { ChangeStatus, ConfigPushResult, ConfigTemplate } from '../api'
 import { RightPanel } from '../components/Layout'
-import { Button, Checkbox, ConfirmDialog, PanelSection, Pill, SectionHeader, Select, StatRow, TextArea, TextInput, ToolCard } from '../components/ui'
+import { Button, Checkbox, ConfirmDialog, PanelSection, Pill, SectionHeader, Select, StatRow, TextArea, TextInput } from '../components/ui'
 import styles from './Push.module.css'
 
 const STATUS_LABELS: Record<ChangeStatus, string> = {
@@ -42,7 +42,6 @@ export default function Push() {
   const [templateSuccess, setTemplateSuccess] = useState<string | null>(null)
   const [previewConfiguration, setPreviewConfiguration] = useState<string | null>(null)
   const [preparingPush, setPreparingPush] = useState(false)
-  const [operator, setOperator] = useState('operator')
   const [confirming, setConfirming] = useState(false)
   const [pushing, setPushing] = useState(false)
   const pushInFlight = useRef(false)
@@ -147,7 +146,7 @@ export default function Push() {
     setPushError(null)
     setResults(null)
     try {
-      setResults(await api.pushConfig({ device_ids: targets.map(device => device.id), configuration: previewConfiguration, operator }))
+      setResults(await api.pushConfig({ device_ids: targets.map(device => device.id), configuration: previewConfiguration }))
     } catch (reason) {
       setPushError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -257,9 +256,6 @@ export default function Push() {
           {templateSuccess && <div role="status" className={styles.success}>{templateSuccess}</div>}
         </PanelSection>
         <PanelSection title="Push" icon={UploadSimple}>
-          <ToolCard title="Operator">
-            <TextInput aria-label="Operator" value={operator} onChange={event => setOperator(event.target.value)} />
-          </ToolCard>
           <Button className={styles.pushButton} variant="primary" icon={UploadSimple} disabled={disabled} onClick={preparePush}>
             {preparingPush ? 'Preparing…' : `Preview push to ${targets.length} ${targets.length === 1 ? 'device' : 'devices'}`}
           </Button>

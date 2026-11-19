@@ -1,4 +1,5 @@
 import pytest
+from conftest import sign_in
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -26,6 +27,7 @@ def client():
 
     app.dependency_overrides[get_session] = override_session
     with TestClient(app) as test_client:
+        sign_in(test_client, testing_session, "test-admin", "admin")  # R7.1: API needs login
         yield test_client, testing_session
     app.dependency_overrides.clear()
     Base.metadata.drop_all(test_engine)
