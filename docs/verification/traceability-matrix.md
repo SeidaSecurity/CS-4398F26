@@ -69,12 +69,12 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 
 | ID | Pri | Status | Implementation | Unit test | Acceptance | Gap / note |
 |---|---|---|---|---|---|---|
-| R6.1 DORA | E | 🟡 | `app/dhcp/packet.py` (codec), `app/dhcp/allocator.py` (RFC 2131 §4.3 state machine) | `test_dhcp_packet.py`, `test_dhcp_allocator.py::test_r6_1_*` (full DORA, allocation order, selecting/init-reboot/renewing, NAK, unknown subnet silent, race without duplicates) | AT-09 | Logic done; UDP server pending (DHCP increment 4) |
+| R6.1 DORA | E | ✅ | `app/dhcp/packet.py`, `allocator.py`, `server.py` (UDP, broadcast replies, bound to `DHCP_SERVER_IP`) | `test_dhcp_packet.py`, `test_dhcp_allocator.py`, `test_dhcp_server.py::test_r6_1_full_dora_over_real_udp` | AT-09 | Proven over localhost UDP; real-segment check (Windows broadcast spike) in DHCP increment 7 |
 | R6.2 Pools | E | 🟡 | `app/dhcp/pools.py` (subnet/range/gateway/DNS/domain/lease rules, no overlaps), `DhcpPool` | `test_dhcp_pools.py::test_r6_2_*` (network/broadcast vs first/last host, lease 59/60/604800/604801) | AT-09 | Rules done; API and Services screen pending (DHCP increments 5–6) |
 | R6.3 Reservations | E | 🟡 | `pools.create_reservation`, `normalize_mac`, `DhcpReservation` | `test_r6_3_*` (MAC forms incl. Cisco, inside subnet, not gateway, unique per MAC/address, not leased to another device) | AT-09 | Rules done; allocator honours them in increment 3 |
 | R6.4 Lease display | E | ❌ | — | — | AT-09 | — |
-| R6.5 Lease persistence | E | ❌ | — | — | AT-09 | — |
-| R6.6 Expiry/release | E | 🟡 | `Allocator._release`, `Allocator.sweep`, expired leases reusable | `test_r6_6_*` (release, 60 s offer hold, sweep boundary 3599/3600 s) | AT-09 | Periodic sweep wired into the server in increment 4 |
+| R6.5 Lease persistence | E | ✅ | Leases stored in `dhcp_leases` (SQLite/PostgreSQL) | `test_r6_5_leases_survive_a_restart` (file DB, service stopped and reopened, same MAC → same IP) | AT-09 | — |
+| R6.6 Expiry/release | E | ✅ | `Allocator._release`, `Allocator.sweep`, background sweep thread in `DhcpService` | `test_r6_6_*` (release, 60 s hold, sweep 3599/3600 s, background sweep) | AT-09 | — |
 | R6.7 Exhaustion log | D | ✅ | `Allocator._log_exhaustion` → `LogRecord` (source `netmgr-dhcp`, severity 4) | `test_r6_7_exhausted_pool_sends_no_offer_and_logs_once_per_minute` | AT-09 | Rate-limited to one entry per pool per minute; visible on the Logs screen |
 
 ## 4.7 Authentication and Access Control (Track A) — Essential

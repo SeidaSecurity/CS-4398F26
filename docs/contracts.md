@@ -62,6 +62,22 @@ Credentials are deliberately outside the device table. The current lab adapter l
   names without that type, both with the zone SOA in the authority section (negative TTL 300 s).
   REFUSED for names outside every local zone.
 
+## DHCP service (ADR-0007)
+
+- Pools: `name`, `subnet` (CIDR, host bits zero, /30 or larger), `range_start`..`range_end`
+  (inside the subnet, not the network/broadcast address), `gateway` (inside the subnet, outside
+  the range), 1–3 `dns_servers`, `domain`, `lease_seconds` (60–604800). Pools may not overlap.
+- Reservations: MAC (stored `aa:bb:cc:dd:ee:ff`; `-`, Cisco `aabb.ccdd.eeff` and bare hex
+  accepted) → IP inside the pool's subnet (may be outside the range; not the gateway), optional
+  hostname. One per MAC and per address in a pool.
+- Leases: one row per address (unique IP), state `offered` (held 60 s) or `bound` (expires after
+  the pool's lease time); expired/released rows free the address; persisted across restarts.
+- Runtime: `DHCP_ENABLED=true`, `DHCP_SERVER_IP` (a local address inside some pool's subnet; also
+  the bound address and the server identifier, option 54), optional `DHCP_BIND_HOST` (default
+  = `DHCP_SERVER_IP`), `DHCP_PORT` (default 67). Fails safe: logs and stays off otherwise.
+- Exhaustion writes a log record (`source` `netmgr-dhcp`, severity 4) at most once per pool per
+  minute; it appears on the Logs screen.
+
 ## REST conventions
 
 - Prefix: `/api/v1`
