@@ -3,6 +3,7 @@ import {
   Article,
   ChartLine,
   ClockCounterClockwise,
+  Globe,
   HardDrives,
   UploadSimple,
   UsersThree,
@@ -16,6 +17,7 @@ import Devices from './pages/Devices'
 import Push from './pages/Push'
 import History from './pages/History'
 import Accounts from './pages/Accounts'
+import Services from './pages/Services'
 
 type NavItem = {
   label: string
@@ -50,6 +52,13 @@ export const nav: { label: string; items: NavItem[] }[] = [
         icon: ClockCounterClockwise,
         element: <History />,
       },
+    ],
+  },
+  {
+    label: 'Network services',
+    items: [
+      // Visible to viewers too (reads are allowed); the page hides write controls (R7.2).
+      { label: 'Services', path: '/services', icon: Globe, element: <Services /> },
     ],
   },
   {

@@ -1,0 +1,73 @@
+.content {
+  flex: 1;
+  min-height: 0;
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lead {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--gray-600);
+  margin-right: auto;
+}
+
+.heading {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mono {
+  font: 400 11px/16px var(--font-mono);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--gray-700);
+}
+
+.help {
+  margin: 0 0 4px;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--gray-600);
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.error,
+.success {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.error {
+  color: var(--red-800);
+  background: var(--red-50);
+}
+
+.success {
+  color: var(--green-800);
+  background: var(--green-50);
+}
