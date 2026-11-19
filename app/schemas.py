@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 
 def as_utc(value: datetime) -> datetime:
@@ -19,11 +19,24 @@ class DeviceCreate(BaseModel):
     ssh_port: int = Field(default=22, ge=1, le=65535)
 
 
-class DeviceUpdate(BaseModel):
-    name: str = Field(default=None, min_length=1, max_length=120)
-    management_ip: str = Field(default=None, min_length=1, max_length=255)
-    platform: str = Field(default=None, min_length=1, max_length=80)
-    ssh_port: int = Field(default=None, ge=1, le=65535)
+class PartialUpdate(BaseModel):
+    """PATCH body: omitted fields stay unchanged; explicit nulls are rejected (NOT NULL columns)."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_nulls(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            nulls = sorted(key for key, value in data.items() if value is None)
+            if nulls:
+                raise ValueError(f"Fields cannot be null: {', '.join(nulls)}")
+        return data
+
+
+class DeviceUpdate(PartialUpdate):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    management_ip: str | None = Field(default=None, min_length=1, max_length=255)
+    platform: str | None = Field(default=None, min_length=1, max_length=80)
+    ssh_port: int | None = Field(default=None, ge=1, le=65535)
 
 
 class DeviceRead(DeviceCreate):
@@ -53,9 +66,9 @@ class ConfigTemplateCreate(BaseModel):
     configuration: str = Field(min_length=1, max_length=100_000)
 
 
-class ConfigTemplateUpdate(BaseModel):
-    name: str = Field(default=None, min_length=1, max_length=120)
-    configuration: str = Field(default=None, min_length=1, max_length=100_000)
+class ConfigTemplateUpdate(PartialUpdate):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    configuration: str | None = Field(default=None, min_length=1, max_length=100_000)
 
 
 class ConfigTemplateRead(ConfigTemplateCreate):
@@ -81,9 +94,22 @@ class ConfigPushRequest(BaseModel):
     operator: str = Field(default="unknown", min_length=1, max_length=120)
 
 
+# Per-device outcome of a push or rollback (SRS 4.3.4 step 5, R3.5):
+#   succeeded   - applied and the resulting configuration was captured
+#   unverified  - applied, but the resulting configuration could not be read back
+#   rejected    - the device refused the configuration (5b)
+#   unreachable - the device could not be reached (5c)
+#   credentials - credentials are missing or were refused
+#   not_found   - the device id is not in the inventory
+#   failed      - unexpected error (details in the audit log)
+ChangeStatus = Literal[
+    "succeeded", "unverified", "rejected", "unreachable", "credentials", "not_found", "failed"
+]
+
+
 class ConfigPushResult(BaseModel):
     device_id: int
-    status: str
+    status: ChangeStatus
     before_version: int | None = None
     after_version: int | None = None
     error: str | None = None

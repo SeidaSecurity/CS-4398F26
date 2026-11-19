@@ -1,12 +1,19 @@
 import json
 import os
+import re
 from typing import Protocol
 
-from netmiko import ConnectHandler
+from netmiko import (
+    ConnectHandler,
+    NetmikoAuthenticationException,
+    NetmikoTimeoutException,
+    ReadTimeout,
+)
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import AuditRecord, ConfigVersion, Device
+from app.schemas import ChangeStatus
 
 
 class DeviceCredentials(Protocol):
@@ -15,22 +22,62 @@ class DeviceCredentials(Protocol):
     secret: str | None
 
 
-class CredentialLookupError(RuntimeError):
+class DeviceError(RuntimeError):
+    """A device operation failed; ``str(error)`` is safe to show to an operator (SRS 5.3.3)."""
+
+    status: ChangeStatus = "failed"
+
+
+class DeviceUnreachableError(DeviceError):
+    """The device could not be reached over SSH (SRS 4.3.4 step 5c)."""
+
+    status = "unreachable"
+
+
+class DeviceRejectedError(DeviceError):
+    """The device refused the configuration it was sent (SRS 4.3.4 step 5b)."""
+
+    status = "rejected"
+
+
+class DeviceCredentialError(DeviceError):
+    """Credentials are missing, malformed, or were refused by the device."""
+
+    status = "credentials"
+
+
+class CredentialLookupError(DeviceCredentialError):
     pass
 
 
+# Cisco IOS reports a rejected command with a line starting with "%".
+IOS_REJECTION = re.compile(
+    r"^%\s*(Invalid input|Incomplete command|Ambiguous command|Unknown command|Error).*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def find_rejection(output: str) -> str | None:
+    """Return the first IOS error line in command output, or None if the device accepted it."""
+    match = IOS_REJECTION.search(output)
+    return match.group(0).strip() if match else None
+
+
 class EnvironmentCredentials:
-    def get(self, device: Device) -> dict[str, str]:
+    def get(self, device: Device) -> dict[str, str | int]:
         raw = os.getenv("NETMGR_DEVICE_CREDENTIALS_JSON", "{}")
         try:
             configured = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise CredentialLookupError(
-                "Device credentials environment value is not valid JSON"
+                "NETMGR_DEVICE_CREDENTIALS_JSON is not valid JSON. "
+                "Fix the server's credential setting and try again."
             ) from exc
 
         if not isinstance(configured, dict):
-            raise CredentialLookupError("Device credentials must be a JSON object")
+            raise CredentialLookupError(
+                "NETMGR_DEVICE_CREDENTIALS_JSON must be a JSON object keyed by device name."
+            )
         credentials = configured.get(device.name)
         if (
             not isinstance(credentials, dict)
@@ -38,9 +85,10 @@ class EnvironmentCredentials:
             or not credentials.get("password")
         ):
             raise CredentialLookupError(
-                f"No username/password configured for device '{device.name}'"
+                f"No username/password configured for device '{device.name}'. "
+                "Add an entry for it to NETMGR_DEVICE_CREDENTIALS_JSON."
             )
-        result = {
+        result: dict[str, str | int] = {
             "device_type": device.platform,
             "host": device.management_ip,
             "port": device.ssh_port,
@@ -65,16 +113,40 @@ class NetmikoConnector:
         self.credentials = credentials or EnvironmentCredentials()
 
     def _run(self, device: Device, operation: str, configuration: str | None = None) -> str:
-        connection = ConnectHandler(**self.credentials.get(device))
+        if operation != "retrieve" and configuration is None:
+            raise ValueError("A configuration snippet is required for a push")
+        address = f"{device.management_ip}:{device.ssh_port}"
+        try:
+            connection = ConnectHandler(**self.credentials.get(device))
+        except NetmikoAuthenticationException as exc:
+            raise DeviceCredentialError(
+                f"{device.name} refused the SSH login. "
+                "Check the username and password configured for this device."
+            ) from exc
+        except (NetmikoTimeoutException, OSError) as exc:
+            raise DeviceUnreachableError(
+                f"Could not reach {device.name} at {address}. "
+                "Check that the device is powered on and SSH is enabled."
+            ) from exc
         try:
             if getattr(connection, "secret", None):
                 connection.enable()
             if operation == "retrieve":
-                return connection.send_command("show running-config")
-            if configuration is None:
-                raise ValueError("A configuration snippet is required for a push")
-            connection.send_config_set(configuration.splitlines())
-            return ""
+                return str(connection.send_command("show running-config"))
+            assert configuration is not None
+            output = str(connection.send_config_set(configuration.splitlines()))
+            rejection = find_rejection(output)
+            if rejection:
+                raise DeviceRejectedError(
+                    f"{device.name} rejected the configuration: {rejection}. "
+                    "Correct the snippet and push again."
+                )
+            return output
+        except (ReadTimeout, OSError) as exc:
+            raise DeviceUnreachableError(
+                f"Lost the SSH session to {device.name} at {address}. "
+                "Check the device and try again."
+            ) from exc
         finally:
             connection.disconnect()
 

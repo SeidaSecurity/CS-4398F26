@@ -21,16 +21,18 @@ Credentials are deliberately outside the device table. The current lab adapter l
 - JSON request/response bodies; standard HTTP status codes and FastAPI `detail` error envelope.
 - Device fields above are the provisional shared model.
 - Configuration push returns one result per distinct target device; one device failure does not cancel later targets.
+- `ConfigPushResult.status` (push and restore) is one of: `succeeded`; `unverified` (applied, but the resulting configuration could not be read back; `before_version` is set); `rejected` (the device refused the snippet, SRS 4.3.4 5b); `unreachable` (5c); `credentials` (missing or refused credentials); `not_found` (unknown device id); `failed` (unexpected error). `error` is an operator-facing message saying what failed and what to do; technical detail goes only to the audit record. Push/rollback logic lives in `app/config_service.py::ConfigurationService`.
+- `POST /devices/{id}/config/retrieve` returns 502 with an operator-facing `detail` on device failure and writes a `configuration.retrieve` / `failed` audit record.
 - Configuration versions retain full captured text, monotonically numbered per device, with `source`, `operator`, and UTC creation time.
 - Configuration templates are stored in `config_templates` and exposed through `GET/POST /api/v1/configuration-templates`, `PATCH/DELETE /api/v1/configuration-templates/{template_id}`, and `POST /api/v1/configuration-templates/render`. Templates use literal `{{ variable_name }}` placeholders (ASCII letters/underscore first, then letters/digits/underscores); rendering requires a value for every distinct placeholder and rejects missing, extra, or malformed placeholders. Rendered text is previewed before the normal configuration push flow.
 - `POST /api/v1/devices/{device_id}/config/versions/{version}/restore?operator=` restores a saved version, first captures the current configuration as `pre_rollback`, captures the resulting running configuration as a new `rollback` version, and audits the operation. It returns one `ConfigPushResult` and uses 404 when the device or version is missing.
 - Logs expose `timestamp`, `received_at`, `source`, `facility`, `severity`, `body`, and `parsed`; raw input is retained in storage for unparsed-message troubleshooting.
 - Log severity follows syslog numeric severity 0 (emergency) through 7 (debug); facility uses the syslog numeric facility.
-- The append-only audit table records operator, action, outcome, device (when applicable), and detail. The API exposes read-only access at `GET /api/v1/audit`; Track A should call the audit writer for login and account changes.
+- The append-only audit table records operator, action, outcome (`started`, `succeeded`, `unverified`, `failed`), device (when applicable), and detail. Template create/update/delete are audited as `template.create|update|delete` and accept `?operator=`. The API exposes read-only access at `GET /api/v1/audit`; Track A should call the audit writer for login and account changes.
 
 ## Device update/delete (Track A)
 
-- `PATCH /api/v1/devices/{device_id}` partially updates `name`, `management_ip`, `platform`, or `ssh_port`; omitted fields stay unchanged. Returns the updated device, 404 if missing, or 409 for a duplicate name.
+- `PATCH /api/v1/devices/{device_id}` partially updates `name`, `management_ip`, `platform`, or `ssh_port`; omitted fields stay unchanged, and an explicit `null` returns 422. Returns the updated device, 404 if missing, or 409 for a duplicate name.
 - `DELETE /api/v1/devices/{device_id}` returns 204 with no body (404 if missing), cascading configuration versions, poll samples, device state, alerts, interfaces, and topology links.
 - Device POST/PATCH/DELETE accept `?operator=` (default `unknown`) and audit successful changes as `device.create`, `device.update`, and `device.delete`; audit records are retained after deletion.
 
@@ -50,7 +52,7 @@ All endpoints below use GET. Shapes show example values; timestamps are UTC date
 - Both metrics endpoints accept `?window=1h` (default), `24h`, or `7d`, with 1-minute, 15-minute, or 2-hour buckets respectively. Buckets without samples are omitted; null metric values are excluded. CPU/memory values are percentages; throughput is bits per second, summed across device averages for network totals. `devices_up` counts distinct devices reachable at least once in each bucket.
 - Device-specific endpoints return 404 if the device is missing. Status includes devices with recorded polls.
 - A device becomes down after 2 consecutive failed polls. One alert is raised per outage and resolved on the first successful poll; recovery resets the failure count.
-- `MONITORING_ENABLED=true` starts background polling (default `false`); `POLL_INTERVAL_SECONDS` sets the delay between polling rounds (default `30`).
+- `MONITORING_ENABLED=true` starts background polling (default `false`); `POLL_INTERVAL_SECONDS` sets the delay between polling rounds (default `60`, per R2.1).
 - `SNMP_COMMUNITY` enables SNMPv2c metrics/interfaces after a successful unprivileged ICMP probe; blank means ICMP only. SNMP failures preserve ICMP reachability. Memory is currently uncollected; throughput requires successive counter readings.
 
 ## Current limitations and follow-up decisions

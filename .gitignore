@@ -1,4 +1,6 @@
 .env
+.env.*
+!.env.example
 .venv/
 __pycache__/
 *.py[cod]
@@ -9,3 +11,12 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.coverage
+htmlcov/
+
+# Licensed device images (Cisco CML) - never commit
+*.qcow2
+*.iso
+*.vmdk
+*.ova
+lab/images/

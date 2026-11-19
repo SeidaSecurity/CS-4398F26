@@ -106,9 +106,9 @@ class SyslogReceivers:
         except OSError:
             udp_server.server_close()
             raise
-        self.servers = [udp_server, tcp_server]
-        for server in self.servers:
-            server.daemon_threads = True
+        udp_server.daemon_threads = True
+        tcp_server.daemon_threads = True
+        self.servers: list[socketserver.BaseServer] = [udp_server, tcp_server]
         self.threads: list[threading.Thread] = []
 
     def start(self) -> None:
@@ -125,6 +125,18 @@ class SyslogReceivers:
             thread.join(timeout=2)
 
 
+LIKE_ESCAPE = "\\"
+
+
+def escape_like(text: str) -> str:
+    """Escape LIKE wildcards so operator search text is matched literally (R4.3)."""
+    return (
+        text.replace(LIKE_ESCAPE, LIKE_ESCAPE * 2)
+        .replace("%", LIKE_ESCAPE + "%")
+        .replace("_", LIKE_ESCAPE + "_")
+    )
+
+
 def list_logs(
     session: Session,
     query: str | None,
@@ -138,7 +150,9 @@ def list_logs(
 
     statement = select(LogRecord)
     if query:
-        statement = statement.where(LogRecord.body.ilike(f"%{query}%"))
+        statement = statement.where(
+            LogRecord.body.ilike(f"%{escape_like(query)}%", escape=LIKE_ESCAPE)
+        )
     if source:
         statement = statement.where(LogRecord.source == source)
     if severity is not None:

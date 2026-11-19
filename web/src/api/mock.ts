@@ -327,11 +327,17 @@ export async function pushConfig(req: ConfigPushRequest): Promise<ConfigPushResu
     const result: ConfigPushResult = {
       device_id: deviceId, status: 'failed', before_version: null, after_version: null, error: null,
     }
-    if (!device) return { ...result, error: 'Device not found' }
+    if (!device) {
+      return {
+        ...result,
+        status: 'not_found',
+        error: `Device ${deviceId} is not in the inventory. Refresh the device list and try again.`,
+      }
+    }
     if (statuses.find(status => status.device_id === deviceId)?.state === 'down') {
-      const error = 'TimeoutError: Connection timed out'
-      recordAudit(operator, 'configuration.push', 'failed', device.name, error)
-      return { ...result, error }
+      recordAudit(operator, 'configuration.push', 'failed', device.name,
+        'DeviceUnreachableError: Connection timed out')
+      return { ...result, status: 'unreachable', error: unreachableMessage(device) }
     }
     const configuration = versions.get(deviceId)?.at(-1)?.configuration ?? runningConfig(device, 1)
     const before = saveVersion(deviceId, configuration, 'pre_push', operator)
@@ -342,6 +348,11 @@ export async function pushConfig(req: ConfigPushRequest): Promise<ConfigPushResu
       `Configuration version ${after.version} captured after push`)
     return { ...result, status: 'succeeded', before_version: before.version, after_version: after.version }
   })
+}
+
+function unreachableMessage(device: Device): string {
+  return `Could not reach ${device.name} at ${device.management_ip}:${device.ssh_port}. `
+    + 'Check that the device is powered on and SSH is enabled.'
 }
 
 export async function restoreConfig(
@@ -356,10 +367,9 @@ export async function restoreConfig(
     device_id: deviceId, status: 'failed', before_version: null, after_version: null, error: null,
   }
   if (statuses.find(status => status.device_id === deviceId)?.state === 'down') {
-    const error = 'TimeoutError: Connection timed out'
     recordAudit(operator, 'configuration.rollback', 'failed', device.name,
-      `Failed to restore configuration version ${version}: ${error}`)
-    return { ...result, error }
+      `Failed to restore configuration version ${version}: DeviceUnreachableError: Connection timed out`)
+    return { ...result, status: 'unreachable', error: unreachableMessage(device) }
   }
   const current = versions.get(deviceId)?.at(-1)?.configuration ?? runningConfig(device, 1)
   const before = saveVersion(deviceId, current, 'pre_rollback', operator)

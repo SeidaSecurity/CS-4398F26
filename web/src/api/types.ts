@@ -47,9 +47,13 @@ export interface ConfigPushRequest {
   operator?: string
 }
 
+/** Per-device push/rollback outcome; mirrors ChangeStatus in app/schemas.py (SRS 4.3.4 step 5). */
+export type ChangeStatus =
+  | 'succeeded' | 'unverified' | 'rejected' | 'unreachable' | 'credentials' | 'not_found' | 'failed'
+
 export interface ConfigPushResult {
   device_id: number
-  status: string
+  status: ChangeStatus
   before_version: number | null
   after_version: number | null
   error: string | null

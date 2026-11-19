@@ -90,3 +90,21 @@ def test_monitoring_response_shapes_after_poll(client, device):
 def test_invalid_metrics_window(client):
     test_client, _ = client
     assert test_client.get("/api/v1/monitoring/metrics?window=5y").status_code == 422
+
+
+def test_r2_1_poll_interval_defaults_to_60_seconds(monkeypatch):
+    from app.main import poll_interval_seconds
+
+    monkeypatch.delenv("POLL_INTERVAL_SECONDS", raising=False)
+    assert poll_interval_seconds() == 60.0
+    monkeypatch.setenv("POLL_INTERVAL_SECONDS", "15")
+    assert poll_interval_seconds() == 15.0
+
+
+@pytest.mark.parametrize("body", [{"name": None}, {"ssh_port": None}])
+def test_r1_2_patch_rejects_explicit_null(client, device, body):
+    """Boundary: omitted fields are unchanged, but null for a NOT NULL column is a 422."""
+    test_client, _ = client
+    response = test_client.patch(f"/api/v1/devices/{device['id']}", json=body)
+    assert response.status_code == 422
+    assert test_client.get("/api/v1/devices").json()[0]["name"] == device["name"]

@@ -2,10 +2,20 @@ import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Check, HardDrives, ListChecks, Plus, Stack, Trash, UploadSimple, X } from '@phosphor-icons/react'
 import { api, useApi } from '../api'
-import type { ConfigPushResult, ConfigTemplate } from '../api'
+import type { ChangeStatus, ConfigPushResult, ConfigTemplate } from '../api'
 import { RightPanel } from '../components/Layout'
 import { Button, Checkbox, ConfirmDialog, PanelSection, Pill, SectionHeader, Select, StatRow, TextArea, TextInput, ToolCard } from '../components/ui'
 import styles from './Push.module.css'
+
+const STATUS_LABELS: Record<ChangeStatus, string> = {
+  succeeded: 'Succeeded',
+  unverified: 'Applied, unverified',
+  rejected: 'Rejected by device',
+  unreachable: 'Unreachable',
+  credentials: 'Credential problem',
+  not_found: 'Not in inventory',
+  failed: 'Failed',
+}
 
 function templateVariables(configuration: string): string[] {
   return [...new Set(
@@ -259,7 +269,8 @@ export default function Push() {
           {results.map(result => {
             const name = devices.find(device => device.id === result.device_id)?.name ?? String(result.device_id)
             const succeeded = result.status === 'succeeded'
-            const row = <StatRow caption={name} value={<Pill tone={succeeded ? 'green' : 'red'} icon={succeeded ? Check : X}>{succeeded ? `v${result.before_version} → v${result.after_version}` : 'Failed'}</Pill>} />
+            const tone = succeeded ? 'green' : result.status === 'unverified' ? 'amber' : 'red'
+            const row = <StatRow caption={name} value={<Pill tone={tone} icon={succeeded ? Check : X}>{succeeded ? `v${result.before_version} → v${result.after_version}` : STATUS_LABELS[result.status]}</Pill>} />
             return succeeded ? (
               <Link key={result.device_id} className={styles.resultLink} to={`/config/history?device=${result.device_id}`}>{row}</Link>
             ) : (

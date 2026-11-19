@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager, suppress
+from dataclasses import asdict
 from datetime import datetime
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response
@@ -9,8 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.config_service import ConfigurationService
 from app.config_templates import TemplateRenderError, render_template
-from app.configuration import NetmikoConnector, record_audit_event, save_config_version
+from app.configuration import DeviceError, NetmikoConnector, record_audit_event
 from app.database import Base, SessionLocal, engine, get_session
 from app.models import AuditRecord, ConfigTemplate, ConfigVersion, Device, utc_now
 from app.monitoring import router as monitoring_router
@@ -35,6 +37,13 @@ from app.schemas import (
 from app.syslog import SyslogReceivers, list_logs
 
 Base.metadata.create_all(bind=engine)
+
+DEFAULT_POLL_INTERVAL_SECONDS = 60.0  # SRS R2.1
+
+
+def poll_interval_seconds() -> float:
+    """Return the configured poll interval, defaulting to 60 s as required by R2.1."""
+    return float(os.getenv("POLL_INTERVAL_SECONDS", str(DEFAULT_POLL_INTERVAL_SECONDS)))
 
 
 async def _run_monitoring(interval: float) -> None:
@@ -66,7 +75,7 @@ async def lifespan(app: FastAPI):
     try:
         if os.getenv("MONITORING_ENABLED", "false").lower() == "true":
             monitoring_task = asyncio.create_task(
-                _run_monitoring(float(os.getenv("POLL_INTERVAL_SECONDS", "30")))
+                _run_monitoring(poll_interval_seconds())
             )
         yield
     finally:
@@ -163,22 +172,11 @@ def retrieve_configuration(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     try:
-        configuration = app.state.device_connector.retrieve(device)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=502, detail=f"Configuration retrieval failed: {exc}"
-        ) from exc
-    record = save_config_version(session, device.id, configuration, "retrieval", operator)
-    record_audit_event(
-        session,
-        operator,
-        "configuration.retrieve",
-        "succeeded",
-        device.name,
-        f"Saved configuration version {record.version}",
-    )
-    session.commit()
-    return record
+        return ConfigurationService(session, app.state.device_connector).retrieve(
+            device, operator
+        )
+    except DeviceError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/devices/{device_id}/config/versions", response_model=list[ConfigVersionRead])
@@ -230,11 +228,15 @@ def list_configuration_templates(session: Session = Depends(get_session)):
 )
 def create_configuration_template(
     payload: ConfigTemplateCreate,
+    operator: str = Query(default="unknown", min_length=1, max_length=120),
     session: Session = Depends(get_session),
 ):
     template = ConfigTemplate(**payload.model_dump())
     session.add(template)
     try:
+        record_audit_event(
+            session, operator, "template.create", "succeeded", detail=f"Template '{template.name}'"
+        )
         session.commit()
     except IntegrityError as exc:
         session.rollback()
@@ -264,15 +266,24 @@ def render_configuration_template(payload: ConfigTemplateRenderRequest):
 def update_configuration_template(
     template_id: int,
     payload: ConfigTemplateUpdate,
+    operator: str = Query(default="unknown", min_length=1, max_length=120),
     session: Session = Depends(get_session),
 ):
     template = session.get(ConfigTemplate, template_id)
     if template is None:
         raise HTTPException(status_code=404, detail="Configuration template not found")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    for field, value in changes.items():
         setattr(template, field, value)
     template.updated_at = utc_now()
     try:
+        record_audit_event(
+            session,
+            operator,
+            "template.update",
+            "succeeded",
+            detail=f"Template '{template.name}': changed {', '.join(sorted(changes))}",
+        )
         session.commit()
     except IntegrityError as exc:
         session.rollback()
@@ -286,11 +297,15 @@ def update_configuration_template(
 @app.delete("/api/v1/configuration-templates/{template_id}", status_code=204)
 def delete_configuration_template(
     template_id: int,
+    operator: str = Query(default="unknown", min_length=1, max_length=120),
     session: Session = Depends(get_session),
 ):
     template = session.get(ConfigTemplate, template_id)
     if template is None:
         raise HTTPException(status_code=404, detail="Configuration template not found")
+    record_audit_event(
+        session, operator, "template.delete", "succeeded", detail=f"Template '{template.name}'"
+    )
     session.delete(template)
     session.commit()
     return Response(status_code=204)
@@ -317,123 +332,18 @@ def restore_configuration(
     )
     if target is None:
         raise HTTPException(status_code=404, detail="Configuration version not found")
-    target_configuration = target.configuration
-
-    try:
-        before = app.state.device_connector.retrieve(device)
-        before_version = save_config_version(
-            session, device.id, before, "pre_rollback", operator
-        ).version
-        record_audit_event(
-            session,
-            operator,
-            "configuration.rollback",
-            "started",
-            device.name,
-            f"Saved pre-rollback configuration version {before_version}",
-        )
-        session.commit()
-
-        app.state.device_connector.restore(device, target_configuration)
-        after = app.state.device_connector.retrieve(device)
-        after_version = save_config_version(
-            session, device.id, after, "rollback", operator
-        ).version
-        record_audit_event(
-            session,
-            operator,
-            "configuration.rollback",
-            "succeeded",
-            device.name,
-            f"Restored configuration version {version} as version {after_version}",
-        )
-        session.commit()
-        return ConfigPushResult(
-            device_id=device_id,
-            status="succeeded",
-            before_version=before_version,
-            after_version=after_version,
-        )
-    except Exception as exc:
-        session.rollback()
-        error = f"{type(exc).__name__}: {exc}"
-        record_audit_event(
-            session,
-            operator,
-            "configuration.rollback",
-            "failed",
-            device.name,
-            f"Failed to restore configuration version {version}: {error}",
-        )
-        session.commit()
-        return ConfigPushResult(device_id=device_id, status="failed", error=error)
+    result = ConfigurationService(session, app.state.device_connector).rollback(
+        device, target, operator
+    )
+    return ConfigPushResult(**asdict(result))
 
 
 @app.post("/api/v1/configurations/push", response_model=list[ConfigPushResult])
 def push_configuration(payload: ConfigPushRequest, session: Session = Depends(get_session)):
-    results = []
-    for device_id in dict.fromkeys(payload.device_ids):
-        device = session.get(Device, device_id)
-        if device is None:
-            results.append(
-                ConfigPushResult(device_id=device_id, status="failed", error="Device not found")
-            )
-            continue
-        try:
-            before = app.state.device_connector.retrieve(device)
-            before_version = save_config_version(
-                session, device.id, before, "pre_push", payload.operator
-            ).version
-            record_audit_event(
-                session,
-                payload.operator,
-                "configuration.push",
-                "started",
-                device.name,
-                f"Saved pre-push configuration version {before_version}",
-            )
-            session.commit()
-            app.state.device_connector.push(device, payload.configuration)
-            after = app.state.device_connector.retrieve(device)
-            after_version = save_config_version(
-                session, device.id, after, "post_push", payload.operator
-            ).version
-            record_audit_event(
-                session,
-                payload.operator,
-                "configuration.push",
-                "succeeded",
-                device.name,
-                f"Configuration version {after_version} captured after push",
-            )
-            session.commit()
-            results.append(
-                ConfigPushResult(
-                    device_id=device_id,
-                    status="succeeded",
-                    before_version=before_version,
-                    after_version=after_version,
-                )
-            )
-        except Exception as exc:
-            session.rollback()
-            record_audit_event(
-                session,
-                payload.operator,
-                "configuration.push",
-                "failed",
-                device.name,
-                f"{type(exc).__name__}: {exc}",
-            )
-            session.commit()
-            results.append(
-                ConfigPushResult(
-                    device_id=device_id,
-                    status="failed",
-                    error=f"{type(exc).__name__}: {exc}",
-                )
-            )
-    return results
+    results = ConfigurationService(session, app.state.device_connector).push(
+        payload.device_ids, payload.configuration, payload.operator
+    )
+    return [ConfigPushResult(**asdict(result)) for result in results]
 
 
 @app.get("/api/v1/logs", response_model=list[LogRecordRead])

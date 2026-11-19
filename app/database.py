@@ -10,7 +10,7 @@ class Base(DeclarativeBase):
 
 
 def make_engine(database_url: str | None = None):
-    url = database_url or os.getenv("DATABASE_URL", "sqlite:///./network_manager.db")
+    url = database_url or os.getenv("DATABASE_URL") or "sqlite:///./network_manager.db"
     options = {"check_same_thread": False} if url.startswith("sqlite") else {}
     database_engine = create_engine(url, pool_pre_ping=True, connect_args=options)
     if database_engine.dialect.name == "sqlite":
