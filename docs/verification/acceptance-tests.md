@@ -89,12 +89,32 @@ options to "save anyway" or correct the entry. *Blocked until R1.3 is implemente
 | 1 | After AT-01/04/05, open the audit view | Each change listed with actor, action, outcome, time | | | |
 | 2 | Look for any edit or delete control | None exists (read-only) | | | |
 
-## AT-08 DNS — R5.1–R5.3 *(Track C — blocked: not implemented)*
+## AT-08 DNS — R5.1, R5.2, R5.3, NFR-3
 
-1. **Services** → create zone `lab.local`, add an A record `r1 → 10.0.0.1`.
-2. `dig @<app-ip> r1.lab.local A` → authoritative answer (`aa` flag).
-3. `dig @<app-ip> nope.lab.local A` → NXDOMAIN with `aa`.
-4. `dig @<app-ip> example.com` → forwarded answer (R5.4).
+**Preconditions:** logged in as admin; `DNS_ENABLED=true` in `.env.lab` and the app restarted;
+no other program on port 53. Run the commands in a PowerShell window on the lab PC.
+
+| # | Action | Expected | Actual | P/F | Screenshot |
+|---|---|---|---|---|---|
+| 1 | Open **Services** | DNS zones table (empty or existing zones) and help text in the side panel | | | step-01 |
+| 2 | **Add zone** `lab.local` (default TTL 3600) | Zone listed with 0 records; inline help visible under each field | | | step-02 |
+| 3 | Select `lab.local`; **Add record** `r1`, type A, `192.168.198.11` | Record listed as `r1.lab.local`, TTL "default (3600 s)" | | | step-03 |
+| 4 | Add record `r1`, type CNAME, `r2.lab.local` | Error: a CNAME cannot share a name with other records (RFC 1034) | | | step-04 |
+| 5 | Add zone `198.168.192.in-addr.arpa`; add record `11`, PTR, `r1.lab.local` | Reverse zone and PTR listed | | | step-05 |
+| 6 | `Resolve-DnsName r1.lab.local -Server 127.0.0.1 -DnsOnly` | Answer `192.168.198.11` | | | step-06 |
+| 7 | `Resolve-DnsName 192.168.198.11 -Server 127.0.0.1 -DnsOnly` | Answer `r1.lab.local` (PTR) | | | step-07 |
+| 8 | `Resolve-DnsName no-such-host.lab.local -Server 127.0.0.1 -DnsOnly` | Error: DNS name does not exist (NXDOMAIN) | | | step-08 |
+| 9 | `.venv\Scripts\python scripts\dns_probe.py r1.lab.local --repeat 5` | `"rcode": "NOERROR", "aa": true`, median < 50 ms (NFR-3) | | | step-09 |
+| 10 | Select record `r1` (A) → **Delete** | **Confirmation dialog** naming `r1.lab.local` | | | step-10-dialog |
+| 11 | Confirm, then repeat step 6 | Record gone; step 6 now returns NXDOMAIN, no restart needed | | | step-11 |
+| 12 | Log in as a **viewer** and open Services | Zones and records visible; no Add/Delete/Save controls | | | step-12 |
+
+**Alternate:** set `DNS_PORT` to a port another program holds and restart. Expected: the API
+window logs "DNS could not listen…", the app (syslog, polling, UI) keeps working, and
+`check-lab.ps1` shows the DNS rows failing with the "Is port … free?" hint.
+
+**Out of scope here (Desirable, later):** forwarding names outside local zones (R5.4); for now
+`example.com` returns REFUSED.
 
 ## AT-09 DHCP — R6.1–R6.5 *(Track C — blocked)*
 

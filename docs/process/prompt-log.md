@@ -10,6 +10,7 @@ commit history and chat exports, and mark those entries "reconstructed".
 | P-002 | 2026-11-17 | Justin | Claude Code (Opus 5.5) | R2.1, R4.3, R4.4, R3.2, R3.5, R1.2, 5.3.3, 10.4 | (uncommitted) |
 | P-003 | 2026-11-18 | Justin | Claude Code (Opus 5.5) | SRS 8.3–8.4 (lab), 5.3.4, ADR-0003 | (uncommitted) |
 | P-004 | 2026-11-19 | Justin | Claude Code (Opus 5.5) | R7.1–R7.4, R3.3, R4.4, NFR-5; SRS 3.1.1 | branch `track-a/7-auth-roles` |
+| P-005 | 2026-11-19 | Justin | Claude Code (Opus 5.5) | R5.1–R5.3, NFR-3, SRS 5.3.1, 5.3.5 | branch `track-c/8-dns-authoritative` |
 
 ---
 
@@ -253,6 +254,98 @@ Two **new checkpoints were found during planning**, from reading the code:
 `tsc` plus manual lab checks); idle-session expiry (R7.5, deferred); HTTPS (NFR-7).
 
 **Human verification:** admin account login and viewer only account creation successful. Refusal of options based on role verified.
+
+---
+
+## P-005 — MoT session: authoritative DNS service (Track C, taken over by Justin)
+
+**Context given (Prompt 0):** `CLAUDE.md`, SRS §4.5, §3.1.6, §5.1 (NFR-3), §5.3.1, §5.3.5, §6.1,
+`docs/contracts.md`, `app/main.py`, `app/auth.py`, `docs/verification/acceptance-tests.md`.
+Track C was reassigned because its original owner had delivered nothing. DNS went first because it
+is smaller, easy to demonstrate, and DHCP's lease registration (R5.6) depends on it.
+
+**Prompt** (drafted with the agent, sent verbatim):
+> Context: CLAUDE.md, SRS §4.5 (R5.1-R5.6), §3.1.6 (Services screen), §5.1 (NFR-3), §5.3.1
+> (robustness), §5.3.5 (in-program help), §6.1 (RFC 1035), docs/contracts.md, app/main.py
+> (lifespan), app/auth.py (central access policy), docs/verification/acceptance-tests.md (AT-08).
+> Goal: an authoritative DNS server for operator-defined zones (Track C, now built by me).
+>
+> Decisions already made (do not re-decide):
+> - Library: dnslib (add to pyproject). UDP and TCP on DNS_HOST/DNS_PORT (default 0.0.0.0:53),
+>   started from the app lifespan only when DNS_ENABLED=true; a bind failure is logged and the
+>   rest of the app keeps running (SRS 5.3.1).
+> - Code lives in its own package app/dns/ (resolver.py, server.py, routes.py) as a separate
+>   subsystem (SRS 5.3.2); tables stay in app/models.py. New tables only (no migrations).
+> - Record types: A, AAAA, CNAME, PTR (R5.1). Zones include reverse zones (in-addr.arpa) for PTR.
+> - Names are case-insensitive. A CNAME cannot share a name with any other record (RFC 1034).
+> - Names outside every local zone get REFUSED for now; forwarding and caching (R5.4/R5.5) and
+>   DHCP registration (R5.6) are Desirable and come later.
+> - Zone and record changes are admin-only (the central policy handles that) and audited.
+>
+> Increments, one capability each:
+> 1. Zone and record tables plus validation: zone names, values per type (IPv4 for A, IPv6 for
+>    AAAA, hostname for CNAME/PTR), TTL bounds, CNAME exclusivity (R5.2).
+> 2. A pure resolver (no sockets): authoritative answers with the AA flag (R5.1), CNAME
+>    followed inside the zone, NXDOMAIN with the zone's SOA in the authority section (R5.3),
+>    NOERROR/no-data when the name exists but not that type, REFUSED outside local zones.
+> 3. UDP+TCP server lifecycle in the app lifespan; integration test with a real query on an
+>    ephemeral port (like the syslog receiver test).
+> 4. REST API for zones and records (CRUD), audited (R4.4), operator-facing errors (SRS 5.3.3).
+> 5. Services screen, DNS part (SRS 3.1.6): zones list, records table, add/edit/delete with
+>    confirmation for deletes, inline help describing each field's format (SRS 5.3.5).
+> 6. Lab: DNS keys in .env.lab.example; check-lab.ps1 resolves a test record via
+>    Resolve-DnsName and reports the response time against NFR-3 (< 50 ms); lab/README and
+>    AT-08 updated to match.
+>
+> Critical checkpoints to address in the plan:
+> A. RFC 1035 correctness: tests build real query packets with dnslib and check the reply's
+>    flags (AA, rcode), answer and authority sections, not just Python return values.
+> B. Port 53 on my Windows machine may be taken by another service: make the port
+>    configurable, make check-lab report a clear failure, and document how to find the
+>    process using it.
+> C. The access-policy route test must automatically cover the new DNS routes; update its
+>    minimum operation count.
+> D. Server threads must stop cleanly on shutdown, and a DNS failure must not stop syslog or the
+>    poller.
+>
+> Before coding: show the baseline and the plan, with how each checkpoint is tested. Wait for my OK.
+> Constraints: tests named test_r5_N_...; tests fail before and pass after; thin routes; update
+> the RTM and contracts.md each increment; add a decision record for the DNS design; don't
+> commit; flag good commit points; add prompt-log entry P-005 for this prompt when finished.
+> Done when: ruff, mypy, pytest (coverage ≥ 70%) and npm run build pass, and on the lab
+> `Resolve-DnsName r1.lab.local -Server 127.0.0.1` returns an authoritative answer, a missing
+> name returns NXDOMAIN, and a PTR lookup works.
+
+**Plan review.** The agent proposed four design points; the user approved them as written:
+1. Read zones from the database on every query (no cache to keep in sync; measure NFR-3).
+2. Answer SOA queries at the apex; the SOA is generated from the zone, with negative TTL 300 s.
+3. TTL range 30–604800 s; the most specific matching zone wins.
+4. CNAMEs are followed only inside local zones, at most 8 hops.
+
+**Finding during planning:** the syslog listener crashed the whole app when port 514 was taken,
+which already broke SRS 5.3.1. The user approved fixing it in the same work. Also checkpoint E:
+naming the package `app/dns` is safe (it's namespaced under `app`).
+
+**Performance tracking matrix** (🟢 all pass, no regression · 🔴 fail → analysed)
+
+| Inc | Tests | Cov | ruff | mypy | tsc | Zone | Notes |
+|---|---|---|---|---|---|---|---|
+| 0 | 128 / 128 | 90% | 0 | 0 | ✅ | baseline | Port 53 free; 29 routes |
+| 1 | 164 / 164 | 90% | 0 | 0 | — | 🟢 | Zone/record rules: label 63/64, name 253/254, TTL 29/30/604800/604801, CNAME exclusivity both ways, no CNAME at the apex. 36 new tests failed first |
+| 2 | 183 / 183 | 90% | 3 → 0 | 0 | — | 🟢 | Pure resolver. **Every test round-trips a real DNS packet through wire format** and checks AA, rcode, answer and authority sections. Includes a CNAME loop (→ SERVFAIL) and empty non-terminals (RFC 8020). 19 new tests failed first |
+| 3 | 191 / 191 | 91% | 0 | 0 | — | 🟢 | Real UDP and TCP queries; clean stop releases both ports (dnslib's `stop()` alone doesn't). **Syslog fix proven fail-before:** the old code crashed startup with `WinError 10048` |
+| 4 | 200 / 200 | 92% | 7 → 0 | 0 | — | 🟢 | 8 REST operations, audited, 422/409/404. The route walk covered them automatically (minimum 29 → 37). An end-to-end test goes from API create to resolver answer |
+| 5 | 200 / 200 | 92% | 0 | 0 | ✅ + build | 🟢 | Services screen with inline help for every field (SRS 5.3.5) and delete confirmations. The first attempt to apply the API changes failed on shell quoting and changed nothing; this was verified before redoing it |
+| 6 | 203 / 203 | 92% | 4 → 0 | 0 | ✅ | 🟢 | `scripts/dns_probe.py`, written *before* its 3 tests (no fail-before for this tooling, noted honestly). `check-lab.ps1` has 4 DNS rows: **21/21 PASS** against a throwaway DNS server on port 5353, median **1.25 ms** (NFR-3). The failure path shows the "is DNS enabled / is the port free" hint |
+
+**Not verified in this session:** DNS on the real lab with your own `.env.lab` (it needs
+`DNS_ENABLED=true` and the records created on the Services screen), so the NFR-3 figure on the
+lab's SQLite file is still to be measured. No automated UI tests.
+
+**Human verification:** _(fill in: the AT-08 run on the lab, i.e. the three Resolve-DnsName
+results, dns_probe showing AA and the median ms, the delete confirmation, and the viewer
+read-only view; be ready to explain NXDOMAIN vs NOERROR/no-data and why the tests round-trip
+through wire format)_
 
 ---
 

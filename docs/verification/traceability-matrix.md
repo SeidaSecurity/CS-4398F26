@@ -95,7 +95,7 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 |---|---|---|
 | NFR-1 Dashboard 50 devices < 3 s | ❌ not measured | Needs a seeded 50-device load test |
 | NFR-2 DHCP < 500 ms @ 20 clients | ❌ | Depends on R6 |
-| NFR-3 DNS < 50 ms | ❌ | Depends on R5 |
+| NFR-3 DNS < 50 ms | ✅ | Measured on the CML lab (2026-11-19, real SQLite DB, `scripts/dns_probe.py`): median 1.41 ms, max 2.84 ms over 20 queries. Per-query DB read is fast enough; no cache needed (ADR-0006 point 5) |
 | NFR-4 1,000 logs/min, no loss | ❌ not measured | Script synthetic syslog load; count stored rows |
 | NFR-5 Salted password hashes | ✅ | argon2id with a random salt per hash (`test_r7_3_hash_is_salted_and_not_the_password`) |
 | NFR-6 Credentials encrypted, key outside DB | ❌ | Env-var plaintext today |
