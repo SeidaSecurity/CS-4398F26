@@ -17,7 +17,12 @@ param(
     [string[]]$ExpectedDown = @('192.168.198.14'),
     [string]$SyslogTarget = '127.0.0.1',
     [string]$EnvFile = '',   # default: .env.lab in the repo root (set below)
-    [int]$SyslogPort = 514
+    [int]$SyslogPort = 514,
+    [string]$DnsServer = '127.0.0.1',
+    [int]$DnsPort = 53,
+    [string]$DnsName = 'r1.lab.local',
+    [string]$DnsMissingName = 'no-such-host.lab.local',
+    [string]$DnsPtrName = '11.198.168.192.in-addr.arpa'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -180,6 +185,48 @@ if ($apiUp) {
             }
             Add-Result 'App monitoring state' "$ip ($($device.name))" $wantState $status.state 'FAIL' $hint
         }
+    }
+}
+
+# 6. DNS (R5.1, R5.3, NFR-3). Read-only: checks records created on the Services screen. --------
+# Uses scripts/dns_probe.py because Resolve-DnsName does not show the AA (authoritative) flag.
+$probe = Join-Path $PSScriptRoot 'dns_probe.py'
+$venvPython = Join-Path (Split-Path -Parent $PSScriptRoot) '.venv\Scripts\python.exe'
+$dnsHint = "Is DNS_ENABLED=true in .env.lab (restart after changing)? Is port $DnsPort free? Check: Get-NetUDPEndpoint -LocalPort $DnsPort"
+function Invoke-DnsProbe([string]$Name, [string]$Type, [int]$Repeat = 1) {
+    $ErrorActionPreference = 'Continue'
+    $json = (& $venvPython $probe $Name --type $Type --server $DnsServer --port $DnsPort --repeat $Repeat 2>$null | Out-String).Trim()
+    $ErrorActionPreference = 'Stop'
+    if (-not $json) { return [pscustomobject]@{ ok = $false; error = 'probe produced no output' } }
+    return $json | ConvertFrom-Json
+}
+function Format-DnsAnswer($Result) {
+    if (-not $Result.ok) { return "no reply ($($Result.error))" }
+    $aa = if ($Result.aa) { 'AA' } else { 'not AA' }
+    $values = @($Result.answers | ForEach-Object { $_.value }) -join ', '
+    if ($values) { return "$($Result.rcode), $aa, $values" } else { return "$($Result.rcode), $aa" }
+}
+if (-not (Test-Path $venvPython)) {
+    Add-Result 'DNS checks' "${DnsServer}:$DnsPort" 'run' 'skipped: .venv missing' 'FAIL' 'Run scripts\run-lab.ps1 once to create .venv'
+} else {
+    $forward = Invoke-DnsProbe $DnsName 'A' 5
+    $forwardOk = $forward.ok -and $forward.rcode -eq 'NOERROR' -and $forward.aa -and @($forward.answers).Count -gt 0
+    $forwardHint = if ($forward.ok) { "Create zone + A record for $DnsName on the Services screen (lab/README.md)" } else { $dnsHint }
+    Add-Result 'DNS authoritative answer' $DnsName 'NOERROR, AA, an address' (Format-DnsAnswer $forward) ($(if ($forwardOk) { 'PASS' } else { 'FAIL' })) $forwardHint
+
+    $missing = Invoke-DnsProbe $DnsMissingName 'A'
+    $missingOk = $missing.ok -and $missing.rcode -eq 'NXDOMAIN' -and $missing.aa
+    Add-Result 'DNS missing name' $DnsMissingName 'NXDOMAIN, AA' (Format-DnsAnswer $missing) ($(if ($missingOk) { 'PASS' } else { 'FAIL' })) $(if ($missing.ok) { 'The zone for this name must exist on the Services screen' } else { $dnsHint })
+
+    $reverse = Invoke-DnsProbe $DnsPtrName 'PTR'
+    $reverseOk = $reverse.ok -and $reverse.rcode -eq 'NOERROR' -and $reverse.aa -and @($reverse.answers).Count -gt 0
+    Add-Result 'DNS reverse (PTR)' $DnsPtrName 'NOERROR, AA, a hostname' (Format-DnsAnswer $reverse) ($(if ($reverseOk) { 'PASS' } else { 'FAIL' })) $(if ($reverse.ok) { 'Create the reverse zone + PTR record on the Services screen (lab/README.md)' } else { $dnsHint })
+
+    if ($forward.ok) {
+        $fast = $forward.median_ms -lt 50
+        Add-Result 'DNS response time (NFR-3)' "$DnsName x5" '< 50 ms (median)' "median $($forward.median_ms) ms, max $($forward.max_ms) ms" ($(if ($fast) { 'PASS' } else { 'FAIL' })) 'Too slow: consider an in-memory zone cache (ADR-0006 point 5)'
+    } else {
+        Add-Result 'DNS response time (NFR-3)' "$DnsName x5" '< 50 ms (median)' 'no reply' 'FAIL' $dnsHint
     }
 }
 

@@ -161,3 +161,46 @@ export interface UserUpdate {
   disabled?: boolean
   password?: string
 }
+
+/** DNS zones and records (SRS 4.5; contracts.md "DNS service"). */
+export type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'PTR'
+
+export interface DnsZone {
+  id: number
+  name: string
+  default_ttl: number
+  serial: number
+  record_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface DnsZoneCreate {
+  name: string
+  default_ttl?: number
+}
+
+export interface DnsRecord {
+  id: number
+  zone_id: number
+  name: string
+  fqdn: string
+  rtype: DnsRecordType
+  value: string
+  ttl: number | null
+  created_at: string
+}
+
+export interface DnsRecordCreate {
+  name: string
+  rtype: DnsRecordType
+  value: string
+  ttl?: number | null
+}
+
+/** Omitted fields are unchanged; `ttl: null` resets to the zone default. */
+export interface DnsRecordUpdate {
+  name?: string
+  value?: string
+  ttl?: number | null
+}

@@ -4,6 +4,7 @@ import type {
   ConfigVersionDetail, Device, DeviceCreate, DeviceMetrics, DeviceStatus,
   Interface, LogQuery, LogRecord, NetworkMetrics, TimeWindow, TopologyLink,
   CurrentUser, UserAccount, UserCreate, UserUpdate,
+  DnsRecord, DnsRecordCreate, DnsRecordUpdate, DnsZone, DnsZoneCreate,
 } from './types'
 import { UNAUTHORIZED_EVENT } from './session'
 
@@ -151,4 +152,38 @@ export function createUser(payload: UserCreate): Promise<UserAccount> {
 
 export function updateUser(userId: number, patch: UserUpdate): Promise<UserAccount> {
   return request(`/users/${userId}`, { method: 'PATCH', body: JSON.stringify(patch) })
+}
+
+// --- DNS (R5.2) -------------------------------------------------------------------------------
+
+export function listDnsZones(): Promise<DnsZone[]> {
+  return request('/dns/zones')
+}
+
+export function createDnsZone(payload: DnsZoneCreate): Promise<DnsZone> {
+  return request('/dns/zones', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export function updateDnsZone(zoneId: number, defaultTtl: number): Promise<DnsZone> {
+  return request(`/dns/zones/${zoneId}`, { method: 'PATCH', body: JSON.stringify({ default_ttl: defaultTtl }) })
+}
+
+export function deleteDnsZone(zoneId: number): Promise<void> {
+  return request(`/dns/zones/${zoneId}`, { method: 'DELETE' })
+}
+
+export function listDnsRecords(zoneId: number): Promise<DnsRecord[]> {
+  return request(`/dns/zones/${zoneId}/records`)
+}
+
+export function createDnsRecord(zoneId: number, payload: DnsRecordCreate): Promise<DnsRecord> {
+  return request(`/dns/zones/${zoneId}/records`, { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export function updateDnsRecord(recordId: number, patch: DnsRecordUpdate): Promise<DnsRecord> {
+  return request(`/dns/records/${recordId}`, { method: 'PATCH', body: JSON.stringify(patch) })
+}
+
+export function deleteDnsRecord(recordId: number): Promise<void> {
+  return request(`/dns/records/${recordId}`, { method: 'DELETE' })
 }

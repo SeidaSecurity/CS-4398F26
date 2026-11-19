@@ -4,6 +4,7 @@ import type {
   ConfigVersionDetail, Device, DeviceCreate, DeviceMetrics, DeviceStatus,
   Interface, LogQuery, LogRecord, MetricPoint, NetworkMetrics, TimeWindow, TopologyLink,
   CurrentUser, UserAccount, UserCreate, UserUpdate,
+  DnsRecord, DnsRecordCreate, DnsRecordUpdate, DnsZone, DnsZoneCreate,
 } from './types'
 import { deviceKind } from '../components/devices'
 
@@ -675,4 +676,114 @@ export async function updateUser(userId: number, patch: UserUpdate): Promise<Use
   if (patch.disabled !== undefined) user.disabled = patch.disabled
   recordAudit(mockOperator(), 'user.update', 'succeeded', null, `User '${user.username}' updated`)
   return copy(user)
+}
+
+// --- DNS (mock) -------------------------------------------------------------------------------
+// Light validation only: the real rules (and RFC checks) live on the server (app/dns/zones.py).
+
+type MockZone = Omit<DnsZone, 'record_count'>
+const dnsZones: MockZone[] = [
+  { id: 1, name: 'lab.local', default_ttl: 3600, serial: 3, created_at: iso(Date.now() - 86_400_000), updated_at: iso(Date.now() - 3_600_000) },
+]
+const dnsRecords: DnsRecord[] = [
+  { id: 1, zone_id: 1, name: 'r1', fqdn: 'r1.lab.local', rtype: 'A', value: '192.168.198.11', ttl: null, created_at: iso(Date.now() - 80_000_000) },
+  { id: 2, zone_id: 1, name: 'www', fqdn: 'www.lab.local', rtype: 'CNAME', value: 'r1.lab.local', ttl: 300, created_at: iso(Date.now() - 70_000_000) },
+]
+const ipv4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/
+
+function requireZone(zoneId: number): MockZone {
+  const zone = dnsZones.find(candidate => candidate.id === zoneId)
+  if (!zone) throw new Error('Zone not found. Refresh the zone list.')
+  return zone
+}
+
+function withCount(zone: MockZone): DnsZone {
+  return { ...zone, record_count: dnsRecords.filter(record => record.zone_id === zone.id).length }
+}
+
+function touchZone(zone: MockZone) {
+  zone.serial += 1
+  zone.updated_at = iso(Date.now())
+}
+
+export async function listDnsZones(): Promise<DnsZone[]> {
+  await delay()
+  return copy([...dnsZones].sort((a, b) => a.name.localeCompare(b.name)).map(withCount))
+}
+
+export async function createDnsZone(payload: DnsZoneCreate): Promise<DnsZone> {
+  await delay()
+  const name = payload.name.trim().toLowerCase().replace(/\.$/, '')
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(name)) throw new Error(`Zone name '${payload.name}' is invalid.`)
+  if (dnsZones.some(zone => zone.name === name)) throw new Error(`Zone '${name}' already exists.`)
+  const zone: MockZone = {
+    id: Math.max(0, ...dnsZones.map(z => z.id)) + 1, name, default_ttl: payload.default_ttl ?? 3600,
+    serial: 1, created_at: iso(Date.now()), updated_at: iso(Date.now()),
+  }
+  dnsZones.push(zone)
+  recordAudit(mockOperator(), 'dns.zone.create', 'succeeded', null, `Zone '${name}'`)
+  return copy(withCount(zone))
+}
+
+export async function updateDnsZone(zoneId: number, defaultTtl: number): Promise<DnsZone> {
+  await delay()
+  const zone = requireZone(zoneId)
+  zone.default_ttl = defaultTtl
+  touchZone(zone)
+  return copy(withCount(zone))
+}
+
+export async function deleteDnsZone(zoneId: number): Promise<void> {
+  await delay()
+  const zone = requireZone(zoneId)
+  dnsZones.splice(dnsZones.indexOf(zone), 1)
+  for (let index = dnsRecords.length - 1; index >= 0; index--) {
+    if (dnsRecords[index].zone_id === zoneId) dnsRecords.splice(index, 1)
+  }
+}
+
+export async function listDnsRecords(zoneId: number): Promise<DnsRecord[]> {
+  await delay()
+  requireZone(zoneId)
+  return copy(dnsRecords.filter(record => record.zone_id === zoneId))
+}
+
+export async function createDnsRecord(zoneId: number, payload: DnsRecordCreate): Promise<DnsRecord> {
+  await delay()
+  const zone = requireZone(zoneId)
+  if (payload.rtype === 'A' && !ipv4.test(payload.value.trim())) {
+    throw new Error("An A record's value must be an IPv4 address like 192.168.198.11.")
+  }
+  const name = payload.name.trim().toLowerCase()
+  const record: DnsRecord = {
+    id: Math.max(0, ...dnsRecords.map(r => r.id)) + 1, zone_id: zoneId, name,
+    fqdn: name === '@' ? zone.name : `${name}.${zone.name}`, rtype: payload.rtype,
+    value: payload.value.trim(), ttl: payload.ttl ?? null, created_at: iso(Date.now()),
+  }
+  dnsRecords.push(record)
+  touchZone(zone)
+  return copy(record)
+}
+
+export async function updateDnsRecord(recordId: number, patch: DnsRecordUpdate): Promise<DnsRecord> {
+  await delay()
+  const record = dnsRecords.find(candidate => candidate.id === recordId)
+  if (!record) throw new Error('Record not found. Refresh the record list.')
+  const zone = requireZone(record.zone_id)
+  if (patch.name !== undefined) {
+    record.name = patch.name.trim().toLowerCase()
+    record.fqdn = record.name === '@' ? zone.name : `${record.name}.${zone.name}`
+  }
+  if (patch.value !== undefined) record.value = patch.value.trim()
+  if (patch.ttl !== undefined) record.ttl = patch.ttl
+  touchZone(zone)
+  return copy(record)
+}
+
+export async function deleteDnsRecord(recordId: number): Promise<void> {
+  await delay()
+  const index = dnsRecords.findIndex(candidate => candidate.id === recordId)
+  if (index < 0) throw new Error('Record not found. Refresh the record list.')
+  touchZone(requireZone(dnsRecords[index].zone_id))
+  dnsRecords.splice(index, 1)
 }

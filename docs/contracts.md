@@ -38,6 +38,30 @@ Credentials are deliberately outside the device table. The current lab adapter l
 - Clients (web UI, scripts) must send the cookie; same-origin browser requests do so
   automatically.
 
+## DNS service (ADR-0006)
+
+- Zones: lowercase names without a trailing dot (`lab.local`, `198.168.192.in-addr.arpa`), with a
+  default TTL (30–604800 s, default 3600) and an SOA serial that increases on every change.
+- Records: `name` relative to the zone (`r1`, `a.b`) or `@` for the apex; `rtype` one of A, AAAA,
+  CNAME, PTR; `value` an IPv4 address (A), an IPv6 address (AAAA, stored compressed), or a hostname
+  (CNAME/PTR); `ttl` 30–604800 s or null for the zone default. A CNAME cannot share a name with any
+  other record, or sit at `@`.
+- Runtime: `DNS_ENABLED=true` starts UDP and TCP on `DNS_HOST:DNS_PORT` (default `0.0.0.0:53`).
+  If a DNS or syslog port can't be bound, that service logs why and stays off, and the rest of the
+  app keeps running (SRS 5.3.1). `app.state.dns_service` / `app.state.syslog_receivers` are `None`
+  in that case.
+- REST (reads open to viewers, writes admin-only, all writes audited as `dns.zone.*` /
+  `dns.record.*`): `GET/POST /api/v1/dns/zones` (`{"name", "default_ttl"}`);
+  `PATCH /api/v1/dns/zones/{id}` (`{"default_ttl"}`; zones can't be renamed); `DELETE` (removes
+  its records); `GET/POST /api/v1/dns/zones/{id}/records` (`{"name", "rtype", "value", "ttl"}`);
+  `PATCH /api/v1/dns/records/{id}` (any of `name`, `value`, `ttl`; `"ttl": null` resets to the
+  zone default; the type can't change); `DELETE /api/v1/dns/records/{id}`. Zone responses include
+  `record_count` and `serial`; record responses include `fqdn`. Errors: `422` invalid syntax or
+  range, `409` duplicate or CNAME clash, `404` unknown id. Changes are answered on the next query.
+- Answers: AA=1 for local zones, RA=0. NXDOMAIN for missing names, NOERROR/no data for existing
+  names without that type, both with the zone SOA in the authority section (negative TTL 300 s).
+  REFUSED for names outside every local zone.
+
 ## REST conventions
 
 - Prefix: `/api/v1`

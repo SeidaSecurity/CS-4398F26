@@ -96,6 +96,40 @@ syslog row in the table below.
 Notes: the database is `network_manager.db` in the repo root (SQLite, git-ignored). The script
 always starts from the repo root, so it is never created anywhere else. Delete the file to start fresh.
 
+### DNS service (R5.1–R5.3, ADR-0006)
+
+**Enable it:** in `.env.lab`, set `DNS_ENABLED=true` (`DNS_HOST=0.0.0.0`, `DNS_PORT=53`) and
+restart `run-lab.ps1`. If port 53 is taken, the API window logs the cause, DNS stays off, and the
+rest of the app keeps running. Find what holds the port with
+`Get-NetUDPEndpoint -LocalPort 53 | Select-Object LocalAddress, OwningProcess`. Internet
+Connection Sharing and the Hyper-V/WSL networking services can take port 53 when they're on.
+
+**Create the lab records** on the **Services** screen (as admin). `check-lab.ps1` expects these:
+
+| Zone | Record name | Type | Value |
+|---|---|---|---|
+| `lab.local` | `r1` | A | `192.168.198.11` |
+| `198.168.192.in-addr.arpa` | `11` | PTR | `r1.lab.local` |
+
+**Query it from Windows:**
+```powershell
+Resolve-DnsName r1.lab.local -Server 127.0.0.1 -DnsOnly                  # A record
+Resolve-DnsName 192.168.198.11 -Server 127.0.0.1 -DnsOnly                # reverse (PTR)
+Resolve-DnsName no-such-host.lab.local -Server 127.0.0.1 -DnsOnly        # NXDOMAIN error
+.venv\Scripts\python scripts\dns_probe.py r1.lab.local --repeat 5         # shows AA flag + timing
+```
+`Resolve-DnsName` doesn't show the AA (authoritative) flag. `dns_probe.py` does, and
+`check-lab.ps1` uses it for its four DNS rows (answer, NXDOMAIN, PTR, NFR-3 response time).
+
+**From routers or other lab hosts** (optional), point them at `192.168.198.1` and allow inbound
+UDP/TCP 53 in the firewall (Administrator):
+```powershell
+New-NetFirewallRule -DisplayName "netmgr DNS UDP 53" -Direction Inbound -Protocol UDP -LocalPort 53 -Action Allow -Profile Any
+New-NetFirewallRule -DisplayName "netmgr DNS TCP 53" -Direction Inbound -Protocol TCP -LocalPort 53 -Action Allow -Profile Any
+```
+On an IOSv router: `conf t` → `ip domain lookup` → `ip name-server 192.168.198.1` → `end`, then
+`ping r1.lab.local`.
+
 ### Alternative: Docker (Linux host, or an Ubuntu VM next to CML)
 Put the same settings in `.env`, then run `docker compose up --build` and
 `cd web && VITE_API_MODE=live npm run dev`.
@@ -113,6 +147,7 @@ Put the same settings in `.env`, then run `docker compose up --build` and
 
 ## Troubleshooting
 
+- **DNS rows fail in check-lab with "no reply":** `DNS_ENABLED=true` missing from `.env.lab` (restart after adding it), or port 53 taken (see "DNS service" above). **"NXDOMAIN" instead of an answer:** the zone or record hasn't been created on the Services screen.
 - **No syslog arriving:** allow inbound UDP/TCP 514 in Windows Defender Firewall (step 2 above).
 - **Every router unreachable, even from `ping.exe`:** the lab isn't running or reachable. Check
   that CML and the routers are started and that WSL/Hyper-V is off (a
