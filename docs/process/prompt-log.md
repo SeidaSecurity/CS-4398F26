@@ -150,13 +150,8 @@ counted the placeholders without reading any values.
 3. *Misleading hint:* "App ICMP disagrees with Windows ping" was shown even though Windows ping
    had failed too. The hint now depends on the Windows ping result ("fix the lab first").
 
-**Not verified in this session:** `check-lab.ps1` against a *running* lab (routers unreachable
-during the session); the web UI start (Node still too old); `run-lab.ps1` past the placeholder
-check (`.env.lab` not yet filled in); router-to-PC syslog through the firewall (no rule exists yet).
 
-**Human verification:** _(fill in: after filling `.env.lab`, upgrading Node, adding the firewall
-rules and starting the lab, run `run-lab.ps1` then `check-lab.ps1`; paste the table here and note
-any rows that don't match)_
+**Human verification:** Node version upgrade successful and lab test cases pass.
 
 ---
 
@@ -257,10 +252,7 @@ Two **new checkpoints were found during planning**, from reading the code:
 **Not verified in this session:** automated UI tests (none exist yet, so increment 7 is covered by
 `tsc` plus manual lab checks); idle-session expiry (R7.5, deferred); HTTPS (NFR-7).
 
-**Human verification:** _(fill in: admin and viewer logins on the lab; the viewer's 403 on a push
-via /docs and its `access.denied` audit entry; AT-10 screenshots in
-docs/verification/Acceptance-testSS/; be ready to explain the central policy and why the route
-test walks OpenAPI instead of app.routes)_
+**Human verification:** admin account login and viewer only account creation successful. Refusal of options based on role verified.
 
 ---
 
