@@ -10,7 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.auth import PasswordPolicyError, UserValidationError, bootstrap_admin
+from app.auth import PasswordPolicyError, UserValidationError, bootstrap_admin, enforce_access
+from app.auth_routes import router as auth_router
 from app.config_service import ConfigurationService
 from app.config_templates import TemplateRenderError, render_template
 from app.configuration import DeviceError, NetmikoConnector, record_audit_event
@@ -110,8 +111,14 @@ async def lifespan(app: FastAPI):
                 receivers.stop()
 
 
-app = FastAPI(title="Network Management API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title="Network Management API",
+    version="0.1.0",
+    lifespan=lifespan,
+    dependencies=[Depends(enforce_access)],  # central access policy (R7.1, R7.2)
+)
 app.include_router(monitoring_router)
+app.include_router(auth_router)
 
 
 @app.get("/health")

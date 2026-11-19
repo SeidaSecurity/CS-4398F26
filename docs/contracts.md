@@ -15,6 +15,23 @@ These are implementation defaults, not team-approved shared contracts. Review th
 
 Credentials are deliberately outside the device table. The current lab adapter looks them up by device name in `NETMGR_DEVICE_CREDENTIALS_JSON`. A proper shared secrets manager/credential-encryption approach must be agreed before production use.
 
+## Authentication (ADR-0005)
+
+- Every `/api/v1/*` route requires a logged-in session, except `POST /api/v1/auth/login` and
+  `POST /api/v1/auth/logout`. `/health` is public. Not logged in → `401` with
+  `{"detail": "You are not logged in. Log in and try again."}`.
+- `POST /api/v1/auth/login` with `{"username", "password"}` → `200` with
+  `{"id", "username", "role", "created_at"}`, plus an HTTP-only, `SameSite=Lax` session cookie
+  `netmgr_session` (8 h by default). Every failure → `401` with
+  `{"detail": "Invalid username or password."}`.
+- `POST /api/v1/auth/logout` → `204` (idempotent). `GET /api/v1/auth/me` → the current user.
+- Roles: `admin` may do everything; `viewer` gets `403` on every non-GET request and on
+  `/api/v1/users/*`. Refusals are audited as `access.denied` / `refused` with detail
+  `"<METHOD> <path>"`. Logins are audited as `auth.login` (`succeeded`/`failed`), logouts as
+  `auth.logout`.
+- Clients (web UI, scripts) must send the cookie; same-origin browser requests do so
+  automatically.
+
 ## REST conventions
 
 - Prefix: `/api/v1`

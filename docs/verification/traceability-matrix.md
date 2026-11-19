@@ -50,7 +50,7 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 | R4.1 UDP+TCP 514 | E | ✅ | `syslog.SyslogReceivers` | `test_udp_and_tcp_receivers_forward_messages` | AT-06 | — |
 | R4.2 Parsing | E | ✅ | `syslog.parse_syslog`, `CISCO_IOS`, `_cisco_timestamp` | `test_parse_*`, `test_preserve_*`, `test_r4_2_*` (real IOSv samples from the lab) | AT-06 | Lab found Cisco IOS messages stored unparsed (2026-11-19); fixed the same day. Re-verify on the lab |
 | R4.3 Search/filter | E | ✅ | `syslog.list_logs`, `escape_like`; sender-IP source fallback | `test_log_search_filters_records`, `test_r4_3_*` | AT-06 | Source is the hostname, or the sender IP when the message names none; still not linked to a device record |
-| R4.4 Audit log | E | 🟡 | `record_audit_event` | push/restore tests, `test_r4_4_template_changes_are_audited`, `test_r4_4_duplicate_template_name_is_not_audited` | AT-07 | Templates now audited (P-002); logins/accounts pending R7 |
+| R4.4 Audit log | E | 🟡 | `record_audit_event`; auth events in `auth_routes.py` and `auth.enforce_access` | push/restore tests, `test_r4_4_template_changes_are_audited`, `test_r4_4_duplicate_template_name_is_not_audited`, `test_r4_4_logins_are_audited` | AT-07 | Logins, logouts and refusals now audited; account changes pending (auth increment 6) |
 | R4.5 Retention | D | ❌ | — | — | — | — |
 | R4.6 Export | M | ⏸ | — | — | — | — |
 
@@ -81,8 +81,8 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 
 | ID | Pri | Status | Implementation | Unit test | Acceptance | Gap / note |
 |---|---|---|---|---|---|---|
-| R7.1 Auth required | E | ❌ | — | — | AT-10 | Every endpoint is currently open |
-| R7.2 Role enforcement | E | ❌ | — | — | AT-10 | — |
+| R7.1 Auth required | E | ✅ | `auth.enforce_access` (app-wide), `auth.current_user`, `auth_routes.py` | `test_access_policy.py` (walks all OpenAPI operations), `test_auth_api.py::test_r7_1_*`, `test_auth.py::test_r7_1_*` | AT-10 | Back end done; Login screen pending (auth increment 7) |
+| R7.2 Role enforcement | E | ✅ | `auth.enforce_access`: viewer gets 403 on every non-GET request, audited | `test_r7_2_every_write_route_rejects_a_viewer`, `test_r7_2_viewer_refusal_changes_nothing_and_is_audited` | AT-10 | UI hiding of write controls pending (auth increment 7) |
 | R7.3 Password storage | E | ✅ | `app/auth.py` (`hash_password`, `validate_password`), `app/common_passwords.py` | `test_auth.py::test_r7_3_*` (length boundaries 7/8/64/65, common list, username, salt) | AT-10 | argon2id hashes; NIST 800-63B rules |
 | R7.4 Account management | E | 🟡 | `auth.create_user`, `auth.bootstrap_admin`, startup hook in `main.py` | `test_r7_4_bootstrap_*`, `test_r7_3_create_user_*` | AT-10 | First admin from env done; account-management API pending (auth increment 6) |
 | R7.5 Session expiry | D | ❌ | — | — | — | — |

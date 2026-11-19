@@ -5,6 +5,7 @@ Decisions: docs/decisions/0005-authentication-and-sessions.md.
 """
 
 import hashlib
+import os
 import re
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -12,10 +13,12 @@ from typing import Literal
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.common_passwords import COMMON_PASSWORDS
+from app.database import get_session
 from app.models import User, UserSession
 
 Role = Literal["admin", "viewer"]
@@ -166,3 +169,62 @@ def resolve_session(db: Session, token: str, now: datetime | None = None) -> Use
 def end_session(db: Session, token: str) -> None:
     db.execute(delete(UserSession).where(UserSession.token_hash == _token_hash(token)))
     db.flush()
+
+
+# --- Settings ------------------------------------------------------------------------------------
+
+
+def session_hours() -> float:
+    return float(os.getenv("SESSION_HOURS", str(DEFAULT_SESSION_HOURS)))
+
+
+def cookie_secure() -> bool:
+    """Secure-flag the cookie once HTTPS exists (NFR-7); off by default for the HTTP lab."""
+    return os.getenv("COOKIE_SECURE", "false").lower() == "true"
+
+
+# --- FastAPI dependencies ------------------------------------------------------------------------
+
+NOT_LOGGED_IN = "You are not logged in. Log in and try again."
+
+
+def current_user(request: Request, db: Session = Depends(get_session)) -> User:
+    """The logged-in user (from the session cookie), or 401."""
+    user = getattr(request.state, "user", None)
+    if user is None:
+        token = request.cookies.get(SESSION_COOKIE)
+        user = resolve_session(db, token) if token else None
+    if user is None:
+        raise HTTPException(status_code=401, detail=NOT_LOGGED_IN)
+    request.state.user = user
+    return user
+
+
+# --- Central access policy (R7.1, R7.2); design point 1 of ADR-0005 -------------------------------
+
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+PUBLIC_OPERATIONS = frozenset({("POST", "/api/v1/auth/login"), ("POST", "/api/v1/auth/logout")})
+ADMIN_ONLY_READ_PREFIXES = ("/api/v1/users",)
+VIEWER_REFUSED = (
+    "Your account is read-only (viewer), so this change was not made. "
+    "Ask an administrator to make it or to change your role."
+)
+
+
+def enforce_access(request: Request, db: Session = Depends(get_session)) -> None:
+    """Applied to every route: anonymous -> 401 on /api/v1; viewer -> 403 (audited) on writes.
+
+    One policy for the whole API, so a new route cannot be left unprotected by accident;
+    tests/test_access_policy.py walks every OpenAPI operation to prove it.
+    """
+    from app.configuration import record_audit_event  # local import avoids a cycle at startup
+
+    method, path = request.method.upper(), request.url.path
+    if not path.startswith("/api/v1/") or (method, path) in PUBLIC_OPERATIONS:
+        return
+    user = current_user(request, db)  # raises 401 when not logged in
+    needs_admin = method not in SAFE_METHODS or path.startswith(ADMIN_ONLY_READ_PREFIXES)
+    if needs_admin and user.role != "admin":
+        record_audit_event(db, user.username, "access.denied", "refused", detail=f"{method} {path}")
+        db.commit()
+        raise HTTPException(status_code=403, detail=VIEWER_REFUSED)
