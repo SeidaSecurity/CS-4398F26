@@ -289,9 +289,12 @@ export async function deleteDevice(deviceId: number): Promise<void> {
   versions.delete(deviceId)
 }
 
-export async function retrieveConfig(deviceId: number, operator: string = 'unknown'): Promise<ConfigVersion> {
+// Mock mode acts as one signed-in admin; the real server takes the operator from the session.
+const MOCK_OPERATOR = 'admin'
+
+export async function retrieveConfig(deviceId: number): Promise<ConfigVersion> {
   await delay()
-  validateText(operator, 120, 'operator')
+  const operator = MOCK_OPERATOR
   const device = requireDevice(deviceId)
   if (statuses.find(status => status.device_id === deviceId)?.state === 'down') {
     throw new Error('Configuration retrieval failed: Connection timed out')
@@ -320,8 +323,7 @@ export async function pushConfig(req: ConfigPushRequest): Promise<ConfigPushResu
   await delay()
   if (!req.device_ids.length) throw new Error('device_ids must contain at least one device')
   validateText(req.configuration, Number.MAX_SAFE_INTEGER, 'configuration')
-  const operator = req.operator ?? 'unknown'
-  validateText(operator, 120, 'operator')
+  const operator = MOCK_OPERATOR
   return [...new Set(req.device_ids)].map(deviceId => {
     const device = devices.find(device => device.id === deviceId)
     const result: ConfigPushResult = {
@@ -355,11 +357,9 @@ function unreachableMessage(device: Device): string {
     + 'Check that the device is powered on and SSH is enabled.'
 }
 
-export async function restoreConfig(
-  deviceId: number, version: number, operator: string = 'unknown',
-): Promise<ConfigPushResult> {
+export async function restoreConfig(deviceId: number, version: number): Promise<ConfigPushResult> {
   await delay()
-  validateText(operator, 120, 'operator')
+  const operator = MOCK_OPERATOR
   const device = requireDevice(deviceId)
   const target = versions.get(deviceId)?.find(record => record.version === version)
   if (!target) throw new Error('Configuration version not found')

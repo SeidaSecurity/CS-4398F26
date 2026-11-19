@@ -40,9 +40,9 @@ export function deleteDevice(deviceId: number): Promise<void> {
   return request(`/devices/${deviceId}`, { method: 'DELETE' })
 }
 
-export function retrieveConfig(deviceId: number, operator: string = 'unknown'): Promise<ConfigVersion> {
-  const params = new URLSearchParams({ operator })
-  return request(`/devices/${deviceId}/config/retrieve?${params}`, { method: 'POST' })
+// The server records the logged-in user as the operator (R3.3, ADR-0005).
+export function retrieveConfig(deviceId: number): Promise<ConfigVersion> {
+  return request(`/devices/${deviceId}/config/retrieve`, { method: 'POST' })
 }
 
 export function listConfigVersions(deviceId: number): Promise<ConfigVersion[]> {
@@ -57,11 +57,8 @@ export function pushConfig(req: ConfigPushRequest): Promise<ConfigPushResult[]> 
   return request('/configurations/push', { method: 'POST', body: JSON.stringify(req) })
 }
 
-export function restoreConfig(
-  deviceId: number, version: number, operator: string = 'unknown',
-): Promise<ConfigPushResult> {
-  const params = new URLSearchParams({ operator })
-  return request(`/devices/${deviceId}/config/versions/${version}/restore?${params}`, { method: 'POST' })
+export function restoreConfig(deviceId: number, version: number): Promise<ConfigPushResult> {
+  return request(`/devices/${deviceId}/config/versions/${version}/restore`, { method: 'POST' })
 }
 
 export function listConfigTemplates(): Promise<ConfigTemplate[]> {

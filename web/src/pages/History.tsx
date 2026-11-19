@@ -94,7 +94,7 @@ export default function History() {
     setRetrieving(true)
     setRetrieveError(null)
     try {
-      const result = await api.retrieveConfig(deviceId, 'operator')
+      const result = await api.retrieveConfig(deviceId)
       const updatedVersions = await api.listConfigVersions(deviceId)
       if (activeDevice.current !== deviceId) return
       const previous = updatedVersions.filter(version => version.version < result.version)
@@ -118,7 +118,7 @@ export default function History() {
     setRestoreTarget(null)
     setRestoreResult(null)
     try {
-      const result = await api.restoreConfig(deviceId, targetVersion, 'operator')
+      const result = await api.restoreConfig(deviceId, targetVersion)
       if (activeDevice.current !== deviceId) return
       if (result.status !== 'succeeded' || result.after_version === null) {
         setRestoreResult({

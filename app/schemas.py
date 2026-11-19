@@ -91,7 +91,7 @@ class ConfigTemplateRenderRead(BaseModel):
 class ConfigPushRequest(BaseModel):
     device_ids: list[int] = Field(min_length=1)
     configuration: str = Field(min_length=1)
-    operator: str = Field(default="unknown", min_length=1, max_length=120)
+    # No `operator` field: the logged-in user is recorded (R3.3, ADR-0005). Extra keys are ignored.
 
 
 # Per-device outcome of a push or rollback (SRS 4.3.4 step 5, R3.5):

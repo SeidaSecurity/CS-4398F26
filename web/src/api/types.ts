@@ -44,7 +44,6 @@ export interface ConfigTemplateRenderRequest {
 export interface ConfigPushRequest {
   device_ids: number[]
   configuration: string
-  operator?: string
 }
 
 /** Per-device push/rollback outcome; mirrors ChangeStatus in app/schemas.py (SRS 4.3.4 step 5). */

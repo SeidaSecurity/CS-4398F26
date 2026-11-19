@@ -98,7 +98,6 @@ def test_push_saves_versions_and_continues_after_device_failure(client):
         json={
             "device_ids": [first["id"], second["id"], 999],
             "configuration": "description managed",
-            "operator": "test-operator",
         },
     )
 
@@ -140,14 +139,12 @@ def test_restore_configuration_creates_a_new_version_and_audit_event(client):
         json={
             "device_ids": [device["id"]],
             "configuration": "description changed",
-            "operator": "test-operator",
         },
     ).json()[0]
     target_version = pushed["before_version"]
 
     response = test_client.post(
         f"/api/v1/devices/{device['id']}/config/versions/{target_version}/restore",
-        params={"operator": "test-operator"},
     )
 
     assert response.status_code == 200
@@ -170,8 +167,8 @@ def test_restore_configuration_creates_a_new_version_and_audit_event(client):
             )
         )
         assert [(event.outcome, event.actor) for event in events] == [
-            ("started", "test-operator"),
-            ("succeeded", "test-operator"),
+            ("started", "test-admin"),  # logged-in user, not a supplied operator (ADR-0005)
+            ("succeeded", "test-admin"),
         ]
 
 
@@ -311,15 +308,13 @@ def test_r4_4_template_changes_are_audited(client):
     template = test_client.post(
         "/api/v1/configuration-templates",
         json={"name": "Banner", "configuration": "banner motd {{ text }}"},
-        params={"operator": "alice"},
     ).json()
     test_client.patch(
         f"/api/v1/configuration-templates/{template['id']}",
         json={"configuration": "banner motd #{{ text }}#"},
-        params={"operator": "alice"},
     )
     test_client.delete(
-        f"/api/v1/configuration-templates/{template['id']}", params={"operator": "alice"}
+        f"/api/v1/configuration-templates/{template['id']}"
     )
 
     events = [
@@ -327,9 +322,9 @@ def test_r4_4_template_changes_are_audited(client):
         for event in reversed(test_client.get("/api/v1/audit").json())
     ]
     assert events == [
-        ("template.create", "alice", "succeeded"),
-        ("template.update", "alice", "succeeded"),
-        ("template.delete", "alice", "succeeded"),
+        ("template.create", "test-admin", "succeeded"),  # logged-in user (ADR-0005)
+        ("template.update", "test-admin", "succeeded"),
+        ("template.delete", "test-admin", "succeeded"),
     ]
 
 
@@ -384,7 +379,7 @@ def _add_device(test_client, name="ios-lab-1"):
 def _push(test_client, device_ids):
     return test_client.post(
         "/api/v1/configurations/push",
-        json={"device_ids": device_ids, "configuration": "ntp server 192.0.2.1", "operator": "op"},
+        json={"device_ids": device_ids, "configuration": "ntp server 192.0.2.1"},
     ).json()
 
 
@@ -477,3 +472,24 @@ def test_r3_2_retrieve_failure_returns_actionable_502_and_is_audited(client):
     assert _change_audit(testing_session) == [
         ("failed", "RuntimeError: socket closed by peer at frame 12")
     ]
+
+
+def test_r3_3_identity_comes_from_the_session_not_a_supplied_operator(client):
+    """R3.3/R4.4: a caller can no longer choose the name that goes into history and audit."""
+    test_client, testing_session = client
+    device = test_client.post(
+        "/api/v1/devices",
+        json={"name": "ios-lab-1", "management_ip": "192.0.2.10"},
+        params={"operator": "mallory"},
+    ).json()
+    test_client.post(
+        "/api/v1/configurations/push",
+        json={"device_ids": [device["id"]], "configuration": "ntp server 192.0.2.1",
+              "operator": "mallory"},
+    )
+
+    versions = test_client.get(f"/api/v1/devices/{device['id']}/config/versions").json()
+    assert {v["operator"] for v in versions} == {"test-admin"}
+    with testing_session() as session:
+        actors = {event.actor for event in session.scalars(select(AuditRecord))}
+    assert actors == {"test-admin"}

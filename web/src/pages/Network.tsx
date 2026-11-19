@@ -89,7 +89,7 @@ export default function Network() {
     setRunning(true)
     setBackupResult(null)
     try {
-      const result = await api.retrieveConfig(Number(selectedBackup), 'operator')
+      const result = await api.retrieveConfig(Number(selectedBackup))
       setBackupResult({ success: true, message: `Saved version ${result.version}` })
     } catch (reason) {
       setBackupResult({ success: false, message: reason instanceof Error ? reason.message : String(reason) })

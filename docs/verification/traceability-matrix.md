@@ -37,7 +37,7 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 |---|---|---|---|---|---|---|
 | R3.1 Push | E | ✅ | `ConfigurationService.push`, `NetmikoConnector.push` | `test_push_saves_versions_and_continues_after_device_failure` | AT-04 | Push by group not possible until R1.5 |
 | R3.2 Retrieval | E | ✅ | `ConfigurationService.retrieve`; pre-push capture | `test_push_saves_versions_*`, `test_r3_2_retrieve_failure_returns_actionable_502_and_is_audited` | AT-04 | — |
-| R3.3 Version history | E | 🟡 | `save_config_version` | same as above | AT-05 | `operator` is caller-supplied text; not a verified identity until R7.1 |
+| R3.3 Version history | E | ✅ | `save_config_version`; operator = logged-in user (`auth.current_user`) | `test_r3_3_identity_comes_from_the_session_not_a_supplied_operator` | AT-05 | Caller-supplied `operator` removed (ADR-0005) |
 | R3.4 Version comparison | E | ✅ | `web/src/lib/diff.ts`, `History.tsx` | — (no diff tests) | AT-05 | Diff is computed in the front end; add unit tests or move to the API |
 | R3.5 Independent failure | E | ✅ | `ConfigurationService._apply_change`, `configuration.DeviceError` hierarchy, `find_rejection` | `test_push_saves_versions_*`, `test_r3_5_unreachable_*`, `test_r3_5_failed_read_back_*`, `test_configuration.py` (classification) | AT-04 | Statuses: succeeded / unverified / rejected / unreachable / credentials / not_found / failed (P-002) |
 | R3.6 Rollback | D | ✅ | `ConfigurationService.rollback` | `test_restore_*` (3 tests) | AT-05 | Replays the config; leaves in place any lines added later (see contracts.md) |
