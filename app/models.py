@@ -167,3 +167,43 @@ class UserSession(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+# --- DNS (SRS 4.5). New tables only. -----------------------------------------------------------
+
+
+class DnsZone(Base):
+    __tablename__ = "dns_zones"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Lowercase, no trailing dot, e.g. "lab.local" or "198.168.192.in-addr.arpa".
+    name: Mapped[str] = mapped_column(String(253), unique=True, index=True)
+    default_ttl: Mapped[int] = mapped_column(Integer, default=3600)
+    serial: Mapped[int] = mapped_column(Integer, default=1)  # bumped on every change (SOA)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    records: Mapped[list["DnsRecord"]] = relationship(
+        back_populates="zone", cascade="all, delete-orphan"
+    )
+
+
+class DnsRecord(Base):
+    __tablename__ = "dns_records"
+    __table_args__ = (
+        UniqueConstraint("zone_id", "name", "rtype", "value"),
+        CheckConstraint("rtype IN ('A', 'AAAA', 'CNAME', 'PTR')"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    zone_id: Mapped[int] = mapped_column(
+        ForeignKey("dns_zones.id", ondelete="CASCADE"), index=True
+    )
+    # Relative to the zone ("r1", "a.b") or "@" for the zone apex; lowercase.
+    name: Mapped[str] = mapped_column(String(253))
+    rtype: Mapped[str] = mapped_column(String(5))
+    value: Mapped[str] = mapped_column(String(253))
+    ttl: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = zone default
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    zone: Mapped[DnsZone] = relationship(back_populates="records")

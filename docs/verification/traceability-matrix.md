@@ -58,9 +58,9 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 
 | ID | Pri | Status | Implementation | Unit test | Acceptance | Gap / note |
 |---|---|---|---|---|---|---|
-| R5.1 Authoritative A/AAAA/PTR/CNAME | E | ❌ | — | — | AT-08 | Not in repository |
-| R5.2 Zone/record management | E | ❌ | — | — | AT-08 | Services screen missing |
-| R5.3 Negative response | E | ❌ | — | — | AT-08 | — |
+| R5.1 Authoritative A/AAAA/PTR/CNAME | E | 🟡 | `app/dns/resolver.py` (`answer`, `DatabaseResolver`) | `test_dns_resolver.py::test_r5_1_*` (real packets, wire round-trip: AA, rcode, sections) | AT-08 | Resolver done; UDP/TCP server pending (DNS increment 3) |
+| R5.2 Zone/record management | E | 🟡 | `app/dns/zones.py` (validation, CNAME exclusivity, SOA serial), `DnsZone`/`DnsRecord` | `test_dns_zones.py::test_r5_2_*` (label 63/64, name 253/254, TTL 29/30/604800/604801) | AT-08 | Rules done; API and Services screen pending (increments 4–5) |
+| R5.3 Negative response | E | 🟡 | `resolver.answer`: NXDOMAIN / NODATA with SOA (RFC 2308) | `test_r5_3_*` (incl. empty non-terminal, dangling CNAME, REFUSED outside zones) | AT-08 | Done in the resolver; needs the server to be reachable |
 | R5.4 Forwarding | D | ❌ | — | — | — | — |
 | R5.5 Caching | D | ❌ | — | — | — | — |
 | R5.6 Lease registration | D | ❌ | — | — | — | — |

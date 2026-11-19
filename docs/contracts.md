@@ -38,6 +38,18 @@ Credentials are deliberately outside the device table. The current lab adapter l
 - Clients (web UI, scripts) must send the cookie; same-origin browser requests do so
   automatically.
 
+## DNS service (ADR-0006)
+
+- Zones: lowercase names without a trailing dot (`lab.local`, `198.168.192.in-addr.arpa`), with a
+  default TTL (30–604800 s, default 3600) and an SOA serial that increases on every change.
+- Records: `name` relative to the zone (`r1`, `a.b`) or `@` for the apex; `rtype` one of A, AAAA,
+  CNAME, PTR; `value` an IPv4 address (A), an IPv6 address (AAAA, stored compressed), or a hostname
+  (CNAME/PTR); `ttl` 30–604800 s or null for the zone default. A CNAME cannot share a name with any
+  other record, or sit at `@`.
+- Answers: AA=1 for local zones, RA=0. NXDOMAIN for missing names, NOERROR/no data for existing
+  names without that type, both with the zone SOA in the authority section (negative TTL 300 s).
+  REFUSED for names outside every local zone.
+
 ## REST conventions
 
 - Prefix: `/api/v1`
