@@ -22,6 +22,7 @@ from app.config_service import ConfigurationService
 from app.config_templates import TemplateRenderError, render_template
 from app.configuration import DeviceError, NetmikoConnector, record_audit_event
 from app.database import Base, SessionLocal, engine, get_session
+from app.dns.server import start_dns_service
 from app.models import AuditRecord, ConfigTemplate, ConfigVersion, Device, User, utc_now
 from app.monitoring import router as monitoring_router
 from app.poller import poll_all
@@ -88,17 +89,42 @@ def _bootstrap_admin_from_env() -> None:
         log.error("ADMIN_USERNAME/ADMIN_PASSWORD rejected: %s Fix .env.lab and restart.", exc)
 
 
+def _start_syslog() -> SyslogReceivers | None:
+    """Start the syslog listeners, or log why not (no longer crashes startup; SRS 5.3.1)."""
+    if os.getenv("SYSLOG_ENABLED", "false").lower() != "true":
+        return None
+    host = os.getenv("SYSLOG_HOST", "0.0.0.0")
+    udp_port = int(os.getenv("SYSLOG_UDP_PORT", "514"))
+    tcp_port = int(os.getenv("SYSLOG_TCP_PORT", "514"))
+    try:
+        receivers = SyslogReceivers(host, udp_port, tcp_port)
+    except OSError as exc:
+        logging.getLogger(__name__).error(
+            "Syslog could not listen on %s (UDP %s / TCP %s): %s. Another program may be using "
+            "the port: find it with 'Get-NetUDPEndpoint -LocalPort %s', or change "
+            "SYSLOG_UDP_PORT/SYSLOG_TCP_PORT. The rest of the application keeps running.",
+            host, udp_port, tcp_port, exc, udp_port,
+        )
+        return None
+    receivers.start()
+    return receivers
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _bootstrap_admin_from_env()
-    receivers = None
-    if os.getenv("SYSLOG_ENABLED", "false").lower() == "true":
-        receivers = SyslogReceivers(
-            os.getenv("SYSLOG_HOST", "0.0.0.0"),
-            int(os.getenv("SYSLOG_UDP_PORT", "514")),
-            int(os.getenv("SYSLOG_TCP_PORT", "514")),
+    # Each network service starts independently: if one can't bind its port, it logs why and
+    # the others keep running (SRS 5.3.1). app.state exposes what actually started.
+    app.state.syslog_receivers = receivers = _start_syslog()
+    app.state.dns_service = dns_service = (
+        start_dns_service(
+            SessionLocal,
+            os.getenv("DNS_HOST", "0.0.0.0"),
+            int(os.getenv("DNS_PORT", "53")),
         )
-        receivers.start()
+        if os.getenv("DNS_ENABLED", "false").lower() == "true"
+        else None
+    )
     app.state.device_connector = NetmikoConnector()
     monitoring_task = None
     try:
@@ -116,6 +142,8 @@ async def lifespan(app: FastAPI):
         finally:
             if receivers:
                 receivers.stop()
+            if dns_service:
+                dns_service.stop()
 
 
 app = FastAPI(

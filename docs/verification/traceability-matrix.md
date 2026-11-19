@@ -58,9 +58,9 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 
 | ID | Pri | Status | Implementation | Unit test | Acceptance | Gap / note |
 |---|---|---|---|---|---|---|
-| R5.1 Authoritative A/AAAA/PTR/CNAME | E | 🟡 | `app/dns/resolver.py` (`answer`, `DatabaseResolver`) | `test_dns_resolver.py::test_r5_1_*` (real packets, wire round-trip: AA, rcode, sections) | AT-08 | Resolver done; UDP/TCP server pending (DNS increment 3) |
+| R5.1 Authoritative A/AAAA/PTR/CNAME | E | ✅ | `app/dns/resolver.py`, `app/dns/server.py` (UDP+TCP, started from lifespan) | `test_dns_resolver.py::test_r5_1_*`, `test_dns_server.py` (real UDP and TCP queries) | AT-08 | Lab check (Resolve-DnsName, NFR-3 timing) in DNS increment 6 |
 | R5.2 Zone/record management | E | 🟡 | `app/dns/zones.py` (validation, CNAME exclusivity, SOA serial), `DnsZone`/`DnsRecord` | `test_dns_zones.py::test_r5_2_*` (label 63/64, name 253/254, TTL 29/30/604800/604801) | AT-08 | Rules done; API and Services screen pending (increments 4–5) |
-| R5.3 Negative response | E | 🟡 | `resolver.answer`: NXDOMAIN / NODATA with SOA (RFC 2308) | `test_r5_3_*` (incl. empty non-terminal, dangling CNAME, REFUSED outside zones) | AT-08 | Done in the resolver; needs the server to be reachable |
+| R5.3 Negative response | E | ✅ | `resolver.answer`: NXDOMAIN / NODATA with SOA (RFC 2308) | `test_r5_3_*` (incl. empty non-terminal, dangling CNAME, REFUSED outside zones) | AT-08 | Served over UDP/TCP; lab check in increment 6 |
 | R5.4 Forwarding | D | ❌ | — | — | — | — |
 | R5.5 Caching | D | ❌ | — | — | — | — |
 | R5.6 Lease registration | D | ❌ | — | — | — | — |
@@ -101,6 +101,7 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 | NFR-6 Credentials encrypted, key outside DB | ❌ | Env-var plaintext today |
 | NFR-7 HTTPS | ❌ | Plain HTTP on :8000 |
 | NFR-8 Audit not modifiable via UI | ✅ | Only `GET /api/v1/audit` exists; no update/delete route |
+| 5.3.1 One failing subsystem doesn't stop the others | ✅ | DNS and syslog log a bind failure and the app keeps running (`test_5_3_1_*`; the syslog case crashed startup before, proven fail-before) |
 | 5.3.2 ≥70% coverage, CI on every PR | 🟡 | 86% locally; CI workflow in `.github/workflows/ci.yml` (enable branch protection on `main` to finish) |
 | 5.3.3 Actionable error messages | 🟡 | Config retrieve/push/rollback fixed (P-002, `test_5_3_3_*`); other screens not yet reviewed |
 | 5.3.4 Single Docker Compose deploy | 🟡 | Compose exists; web UI not included in it |

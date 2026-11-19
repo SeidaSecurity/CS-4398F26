@@ -46,6 +46,10 @@ Credentials are deliberately outside the device table. The current lab adapter l
   CNAME, PTR; `value` an IPv4 address (A), an IPv6 address (AAAA, stored compressed), or a hostname
   (CNAME/PTR); `ttl` 30–604800 s or null for the zone default. A CNAME cannot share a name with any
   other record, or sit at `@`.
+- Runtime: `DNS_ENABLED=true` starts UDP and TCP on `DNS_HOST:DNS_PORT` (default `0.0.0.0:53`).
+  If a DNS or syslog port can't be bound, that service logs why and stays off, and the rest of the
+  app keeps running (SRS 5.3.1). `app.state.dns_service` / `app.state.syslog_receivers` are `None`
+  in that case.
 - Answers: AA=1 for local zones, RA=0. NXDOMAIN for missing names, NOERROR/no data for existing
   names without that type, both with the zone SOA in the authority section (negative TTL 300 s).
   REFUSED for names outside every local zone.
