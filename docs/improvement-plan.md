@@ -67,7 +67,7 @@ affects the grade: Essential requirements first, then design principles, then pr
     can be checked mechanically: `pytest --collect-only -q | grep r3_5`.
 29. **Prompt log** — start logging now (`docs/process/prompt-log.md`) and reconstruct the earlier
     sessions from commits.
-30. **Lab artifacts** — `lab/` with the GNS3/Containerlab topology and router base configs (SRS 8.4).
+30. **Lab artifacts** — ✅ `lab/` with the CML topology notes, router base configs, and run/smoke-test scripts (SRS 8.4; CML replaces GNS3 per ADR-0004).
 
 ## Suggested order for the next week
 

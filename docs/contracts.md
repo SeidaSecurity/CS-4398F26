@@ -62,7 +62,7 @@ All endpoints below use GET. Shapes show example values; timestamps are UTC date
 
 - Authentication, authorization, HTTPS, secret encryption, retention jobs, and migrations are not implemented yet.
 - The API accepts operator labels but does not authenticate them. Run only in an isolated lab.
-- Cisco `cisco_ios` is the initial target; verify the exact IOS image and CLI behavior against the GNS3 lab.
+- Cisco `cisco_ios` is the initial target; verify the exact IOS image and CLI behavior against the CML lab (IOSv 15.9).
 - Configuration restore replays the saved configuration through the device adapter; verify restore behavior against the target IOS image, especially removal of settings added after the saved version.
 - TCP syslog currently expects newline-delimited messages; confirm whether the chosen Cisco IOS image requires RFC 6587 octet-counted framing.
 - The simple schema bootstrap is suitable for a clean development database; adopt Alembic migrations before shared, persistent schema evolution.
