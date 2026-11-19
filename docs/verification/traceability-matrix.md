@@ -48,8 +48,8 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 | ID | Pri | Status | Implementation | Unit test | Acceptance | Gap / note |
 |---|---|---|---|---|---|---|
 | R4.1 UDP+TCP 514 | E | ✅ | `syslog.SyslogReceivers` | `test_udp_and_tcp_receivers_forward_messages` | AT-06 | — |
-| R4.2 Parsing | E | ✅ | `syslog.parse_syslog` | `test_parse_*`, `test_preserve_*` | AT-06 | — |
-| R4.3 Search/filter | E | ✅ | `syslog.list_logs`, `escape_like` | `test_log_search_filters_records`, `test_r4_3_search_treats_like_wildcards_literally` | AT-06 | Source filter matches a hostname string, not a device record |
+| R4.2 Parsing | E | ✅ | `syslog.parse_syslog`, `CISCO_IOS`, `_cisco_timestamp` | `test_parse_*`, `test_preserve_*`, `test_r4_2_*` (real IOSv samples from the lab) | AT-06 | Lab found Cisco IOS messages stored unparsed (2026-11-19); fixed the same day. Re-verify on the lab |
+| R4.3 Search/filter | E | ✅ | `syslog.list_logs`, `escape_like`; sender-IP source fallback | `test_log_search_filters_records`, `test_r4_3_*` | AT-06 | Source is the hostname, or the sender IP when the message names none; still not linked to a device record |
 | R4.4 Audit log | E | 🟡 | `record_audit_event` | push/restore tests, `test_r4_4_template_changes_are_audited`, `test_r4_4_duplicate_template_name_is_not_audited` | AT-07 | Templates now audited (P-002); logins/accounts pending R7 |
 | R4.5 Retention | D | ❌ | — | — | — | — |
 | R4.6 Export | M | ⏸ | — | — | — | — |

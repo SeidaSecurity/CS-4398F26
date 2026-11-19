@@ -28,6 +28,9 @@ Credentials are deliberately outside the device table. The current lab adapter l
 - `POST /api/v1/devices/{device_id}/config/versions/{version}/restore?operator=` restores a saved version, first captures the current configuration as `pre_rollback`, captures the resulting running configuration as a new `rollback` version, and audits the operation. It returns one `ConfigPushResult` and uses 404 when the device or version is missing.
 - Logs expose `timestamp`, `received_at`, `source`, `facility`, `severity`, `body`, and `parsed`; raw input is retained in storage for unparsed-message troubleshooting.
 - Log severity follows syslog numeric severity 0 (emergency) through 7 (debug); facility uses the syslog numeric facility.
+- Accepted formats, tried in order: RFC 5424, Cisco IOS default (`<PRI>seq: host: *Mmm dd hh:mm:ss.mmm: %FAC-SEV-MNEMONIC: text`, where seq, host, `*`/`.`, year, milliseconds and timezone are optional), then RFC 3164. Anything else is stored with `parsed=false`.
+- Cisco IOS: `body` keeps `%FAC-SEV-MNEMONIC: text` so mnemonics stay searchable. `timestamp` is the receive time when the router marks its clock unsynchronized (`*` or `.`); otherwise the router time, treated as UTC, with the receive year (a Dec 31 message received on Jan 1 is dated the previous year).
+- `source` is the hostname in the message, or the sender's IP address when the message names none (including unparsed messages); `unknown` only if neither is available.
 - The append-only audit table records operator, action, outcome (`started`, `succeeded`, `unverified`, `failed`), device (when applicable), and detail. Template create/update/delete are audited as `template.create|update|delete` and accept `?operator=`. The API exposes read-only access at `GET /api/v1/audit`; Track A should call the audit writer for login and account changes.
 
 ## Device update/delete (Track A)

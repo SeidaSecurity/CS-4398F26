@@ -76,12 +76,15 @@ stateDiagram-v2
     [*] --> Received : UDP datagram / TCP line on :514
     Received --> MatchRFC5424
     MatchRFC5424 --> Parsed : regex ok AND ISO timestamp valid AND PRI ≤ 191
-    MatchRFC5424 --> MatchRFC3164 : no match
+    MatchRFC5424 --> MatchCiscoIOS : no match
     MatchRFC5424 --> Unparsed : timestamp invalid or PRI > 191
+    MatchCiscoIOS --> Parsed : regex ok AND date valid AND PRI ≤ 191 / timestamp = receive time if '*' or '.'
+    MatchCiscoIOS --> Unparsed : impossible date or PRI > 191
+    MatchCiscoIOS --> MatchRFC3164 : no match
     MatchRFC3164 --> Parsed : regex ok AND date valid AND PRI ≤ 191
     MatchRFC3164 --> Unparsed : otherwise
     Parsed --> Stored : facility = PRI div 8, severity = PRI mod 8
-    Unparsed --> Stored : keep raw, source="unknown", parsed=false
+    Unparsed --> Stored : keep raw, source = sender IP (else "unknown"), parsed=false
     Stored --> Purged : older than retention  (R4.5 — planned)
     Stored --> [*]
     Purged --> [*]
