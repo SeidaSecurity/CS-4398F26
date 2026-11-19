@@ -11,6 +11,9 @@ dependencies = [
     "fastapi>=0.115,<1.0",
     "icmplib>=3.0,<4.0",
     "netmiko>=4.4,<5.0",
+    # paramiko 5 removed SHA-1 key exchange and ssh-rsa host keys, the only ones IOSv 15.9 offers.
+    # Keep <5 while the lab uses IOSv (see docs/decisions/0003-pin-paramiko-for-iosv.md).
+    "paramiko>=4.0,<5.0",
     "psycopg[binary]>=3.2,<4.0",
     "pysnmp>=7.1,<8.0",
     "sqlalchemy>=2.0,<3.0",

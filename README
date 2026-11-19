@@ -44,7 +44,7 @@ uvicorn app.main:app --reload
 
 Create a device with its stable name, management address, SSH port, and Netmiko `device_type` (for Cisco IOS use `cisco_ios`). Supply credentials through `NETMGR_DEVICE_CREDENTIALS_JSON`; the JSON object is keyed by device name and contains `username` and `password`, with an optional `secret` for enable mode. Never commit real credentials or place them in API requests.
 
-The app currently supports one target device per credential entry, requires the device to be reachable over SSH, and does not configure GNS3 or IOS. Start with an isolated GNS3 lab and a non-production router.
+The app currently supports one target device per credential entry, requires the device to be reachable over SSH, and does not configure CML or IOS. Start with an isolated CML lab and a non-production router.
 
 ## Initial Track B work
 

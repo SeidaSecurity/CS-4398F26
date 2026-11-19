@@ -47,8 +47,11 @@ python -m pip install -e ".[dev]"
 pytest --cov=app --cov-report=term-missing
 ruff check .
 cd web && npm install && npm run dev       # mock data; VITE_API_MODE=live for real backend
-docker compose up --build                  # full stack with PostgreSQL
+docker compose up --build                  # full stack with PostgreSQL (Linux / Ubuntu VM)
+powershell -ExecutionPolicy Bypass -File scripts\run-lab.ps1     # native Windows + CML lab (no Docker)
+powershell -ExecutionPolicy Bypass -File scripts\check-lab.ps1   # lab smoke test (pass/fail table)
 ```
+Never read or print `.env.lab`; it holds lab credentials.
 
 ## Branches
 
