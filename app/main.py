@@ -22,6 +22,7 @@ from app.config_service import ConfigurationService
 from app.config_templates import TemplateRenderError, render_template
 from app.configuration import DeviceError, NetmikoConnector, record_audit_event
 from app.database import Base, SessionLocal, engine, get_session
+from app.dns.routes import router as dns_router
 from app.dns.server import start_dns_service
 from app.models import AuditRecord, ConfigTemplate, ConfigVersion, Device, User, utc_now
 from app.monitoring import router as monitoring_router
@@ -155,6 +156,7 @@ app = FastAPI(
 app.include_router(monitoring_router)
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(dns_router)
 
 
 @app.get("/health")

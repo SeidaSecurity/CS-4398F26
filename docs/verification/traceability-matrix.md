@@ -59,7 +59,7 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 | ID | Pri | Status | Implementation | Unit test | Acceptance | Gap / note |
 |---|---|---|---|---|---|---|
 | R5.1 Authoritative A/AAAA/PTR/CNAME | E | ✅ | `app/dns/resolver.py`, `app/dns/server.py` (UDP+TCP, started from lifespan) | `test_dns_resolver.py::test_r5_1_*`, `test_dns_server.py` (real UDP and TCP queries) | AT-08 | Lab check (Resolve-DnsName, NFR-3 timing) in DNS increment 6 |
-| R5.2 Zone/record management | E | 🟡 | `app/dns/zones.py` (validation, CNAME exclusivity, SOA serial), `DnsZone`/`DnsRecord` | `test_dns_zones.py::test_r5_2_*` (label 63/64, name 253/254, TTL 29/30/604800/604801) | AT-08 | Rules done; API and Services screen pending (increments 4–5) |
+| R5.2 Zone/record management | E | 🟡 | `app/dns/zones.py` (rules), `app/dns/routes.py` (8 REST operations, audited) | `test_dns_zones.py::test_r5_2_*`, `test_dns_api.py` (CRUD, 422/409/404, audit, API→resolver end to end) | AT-08 | API done; Services screen pending (DNS increment 5) |
 | R5.3 Negative response | E | ✅ | `resolver.answer`: NXDOMAIN / NODATA with SOA (RFC 2308) | `test_r5_3_*` (incl. empty non-terminal, dangling CNAME, REFUSED outside zones) | AT-08 | Served over UDP/TCP; lab check in increment 6 |
 | R5.4 Forwarding | D | ❌ | — | — | — | — |
 | R5.5 Caching | D | ❌ | — | — | — | — |
