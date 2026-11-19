@@ -1,7 +1,7 @@
 # Acceptance Test Cases
 
 Derived from the SRS Section 4 stimulus/response sequences. Run them against the live stack
-(`docker compose up`, then `cd web && VITE_API_MODE=live npm run dev`) and the GNS3 lab.
+(`docker compose up`, then `cd web && VITE_API_MODE=live npm run dev`) and the CML lab.
 For each step, capture a screenshot of the window, or the pop-up/dialog if one appears, and save
 it as `docs/acceptance/screenshots/AT-xx/step-NN.png`. Record Actual and Pass/Fail for every step.
 

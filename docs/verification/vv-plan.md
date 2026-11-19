@@ -12,7 +12,7 @@
 | Static | Lint, formatting, type checks | `ruff`, `mypy`, `tsc` (via `npm run build`) | CI on every PR | Must pass (mypy reached 0 errors on 2026-11-17 and is now blocking) |
 | Unit | One domain function or class, all device I/O faked | `pytest` | CI | Must pass; coverage ≥ 70% (`--cov-fail-under=70`) |
 | API / integration | Route → domain → in-memory SQLite, fake connector/probe | `pytest` + FastAPI `TestClient` | CI | Must pass |
-| Lab integration | Real Postgres plus GNS3 routers, syslog from IOS, `dig`/`dhcping` | Manual or scripted against the lab | Weekly Friday lab session (SRS 10.2) | Each Essential FR passes once before M2 |
+| Lab integration | CML IOSv routers, syslog from IOS, `dig`/`dhcping` | `scripts/check-lab.ps1` smoke test plus manual steps | Weekly Friday lab session (SRS 10.2) | Each Essential FR passes once before M2 |
 | Acceptance | Operator-level scenarios through the UI, with screenshots | [acceptance-tests.md](acceptance-tests.md) | Before each milestone demo | All Essential ATs pass for M2 |
 | Performance | NFR-1..4 | Scripts in `lab/load/` (to be written) | Week 11–13 | Measured numbers recorded in the RTM |
 

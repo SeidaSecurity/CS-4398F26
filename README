@@ -1,58 +1,102 @@
-# Network Management Application
+# Network Management Application (CS 4398 F26 capstone)
 
-Track B starter implementation for remote configuration management and centralized logging.
+A self-hosted network management system, comparable in purpose to SolarWinds: it monitors
+network devices, pushes and versions their configurations, collects their syslog centrally, and
+(planned) serves DNS and DHCP. Requirements are in
+`SRS Requirements/SRS Network Management Application (Capstone).pdf`; the
+[docs index](docs/README.md) maps every course deliverable to its file.
 
-## What is here
+## Status
 
-- FastAPI service with versioned `/api/v1` routes.
-- SQLAlchemy models for the shared device contract, configuration snapshots, and syslog records.
-- Netmiko-backed Cisco IOS configuration retrieval and push.
-- Reusable configuration templates with validated variable substitution and a rendered push preview.
-- UDP/TCP syslog listeners, RFC 5424/3164 parsing, durable storage, and searchable log API.
-- Append-only audit events with a read-only API, including Track A's future login/account event hook.
-- PostgreSQL-backed Docker Compose development environment and focused tests.
+| Track | Features (SRS §4) | State |
+|---|---|---|
+| A: Platform and monitoring | Device inventory, polling, dashboard, alerts (4.1, 4.2) | Working; connection test (R1.3) and credential encryption (R1.4) still open |
+| A: Authentication | Login, admin/viewer roles (4.7) | In progress on `track-a/7-auth-roles`; **the API is currently open** |
+| B: Configuration and logging | Push, versions, diff, rollback, templates, syslog, search, audit (4.3, 4.4) | Working and validated on the lab (Cisco IOS syslog parsed) |
+| C: Network services | DNS (4.5), DHCP (4.6) | Not started |
 
-The initial device/API contracts are proposals because the team has not frozen the shared contracts yet. Review [docs/contracts.md](docs/contracts.md) with Tracks A and C before integrating their work.
+Requirement-level detail: [traceability matrix](docs/verification/traceability-matrix.md).
 
-## Run locally
+## Stack
 
-Requirements: Python 3.11+ and PostgreSQL, or Docker Desktop with Compose.
+| Layer | Technology |
+|---|---|
+| API | Python 3.11+, FastAPI, Uvicorn |
+| Persistence | SQLAlchemy; SQLite for lab sessions, PostgreSQL in Docker |
+| Device configuration | Netmiko over SSH (paramiko pinned below 5 for IOSv, [ADR-0003](docs/decisions/0003-pin-paramiko-for-iosv.md)) |
+| Monitoring | icmplib (reachability), PySNMP v2c (CPU, interfaces, throughput) |
+| Logging | Built-in UDP/TCP syslog listener on port 514: RFC 5424, Cisco IOS, and RFC 3164 formats |
+| Web UI | React + Vite + Recharts in `web/` (talks to the API only) |
+| Tests and CI | pytest (coverage gate ≥ 70%), ruff, mypy, `tsc`; GitHub Actions on every PR |
+| Virtual lab | Cisco Modeling Labs (CML) with IOSv routers ([lab/README.md](lab/README.md)) |
+
+## Repository layout
+
+```
+app/            FastAPI application (models, routes, domain services, device adapters)
+  main.py         app lifespan (syslog + poller) and API routes
+  config_service.py, configuration.py, config_templates.py   configuration management (Track B)
+  syslog.py       syslog listener, parser, search (Track B)
+  monitoring.py, poller.py, probes.py                        monitoring (Track A)
+tests/          pytest suite; all device I/O is faked (SRS 8.3)
+web/            React front end
+lab/            CML lab: topology notes, router base configs, setup and smoke test
+scripts/        run-lab.ps1 (run natively on Windows), check-lab.ps1 (lab smoke test)
+docs/           design, verification, process, contracts, decision records
+```
+
+## Running it
+
+### Natively on Windows, against the CML lab (normal for lab sessions)
+CML needs VMware nested virtualization, which stops working while WSL2/Hyper-V (and therefore
+Docker Desktop) is on, so lab sessions run the app without Docker:
 
 ```powershell
-Copy-Item .env.example .env
+Copy-Item .env.lab.example .env.lab      # then replace every REPLACE_WITH_* value
+powershell -ExecutionPolicy Bypass -File scripts\run-lab.ps1
+powershell -ExecutionPolicy Bypass -File scripts\check-lab.ps1   # in a second terminal
+```
+
+`run-lab.ps1` creates `.venv`, installs the project, checks the toolchain, and starts the API
+(`http://127.0.0.1:8000`, interactive docs at `/docs`) and the web UI. Full steps, the firewall
+rules, and troubleshooting are in [lab/README.md](lab/README.md).
+
+### With Docker (Linux host, or an Ubuntu VM next to CML)
+```sh
+cp .env.example .env
 docker compose up --build
+cd web && VITE_API_MODE=live npm run dev
 ```
+Compose runs PostgreSQL and the API, and publishes syslog on UDP/TCP 514.
 
-The API is at `http://localhost:8000`; interactive API documentation is at `/docs`. Compose publishes syslog on UDP and TCP port 514. Do not expose this development stack to the internet, a campus network, or a production network: authentication and TLS are not implemented yet.
-
-To run tests locally:
-
+### Tests and checks
 ```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
+python -m venv .venv; .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
-pytest
+pytest --cov=app        # unit and API tests; no lab or open ports needed
+ruff check .
+mypy app --ignore-missing-imports
+cd web; npm run build   # TypeScript check + production build (Node ^20.19 or >= 22.12)
 ```
 
-For direct local execution, configure `DATABASE_URL` and set `SYSLOG_ENABLED=false` if ports 514 are unavailable. Start the API with:
+## Devices and credentials
 
-```powershell
-uvicorn app.main:app --reload
-```
+Register devices on the Devices screen (or `POST /api/v1/devices`) with a name, management IP,
+SSH port, and Netmiko platform (`cisco_ios`). Until encrypted credential storage (R1.4) lands,
+credentials come from `NETMGR_DEVICE_CREDENTIALS_JSON` in your git-ignored `.env.lab` / `.env`,
+keyed by device name ([ADR-0002](docs/decisions/0002-device-credentials-from-environment.md)).
+Never commit credentials.
 
-## Connecting a lab router
+## Safety
 
-Create a device with its stable name, management address, SSH port, and Netmiko `device_type` (for Cisco IOS use `cisco_ios`). Supply credentials through `NETMGR_DEVICE_CREDENTIALS_JSON`; the JSON object is keyed by device name and contains `username` and `password`, with an optional `secret` for enable mode. Never commit real credentials or place them in API requests.
+Lab use only. Authentication is still being added and there is no TLS yet, so never expose
+this stack to the internet, a campus network, or a production network (SRS 6.2).
 
-The app currently supports one target device per credential entry, requires the device to be reachable over SSH, and does not configure CML or IOS. Start with an isolated CML lab and a non-production router.
+## How we work
 
-## Initial Track B work
-
-1. `POST /api/v1/devices` and `GET /api/v1/devices` register/list devices.
-2. `POST /api/v1/devices/{device_id}/config/retrieve` saves a running-config snapshot.
-3. `POST /api/v1/configurations/push` captures the pre-push configuration, applies the snippet, captures the resulting configuration, and returns an independent result for each device.
-4. `GET /api/v1/devices/{device_id}/config/versions` lists saved snapshots, and the version-specific route retrieves a snapshot's full configuration.
-5. The syslog listeners persist parsed or raw messages; `GET /api/v1/logs` searches and filters them.
-6. `GET /api/v1/audit` reads the append-only audit trail; other tracks should use the audit writer for their security events.
-
-`pytest` exercises parsing and core behaviors without requiring a live router or open syslog ports. Hardware-in-the-loop validation still needs the GNS3 environment.
+We develop with a disciplined agentic process, Module of Thought (MoT): explicit agent context
+([CLAUDE.md](CLAUDE.md)), a measured baseline, one capability per increment, critical checkpoints
+labeled up front, and requirement-named tests that fail before and pass after. See
+[docs/process/agentic-workflow.md](docs/process/agentic-workflow.md) and the
+[V&V plan](docs/verification/vv-plan.md). Branches follow `track-<a|b|c>/<issue>-<slug>`, and PRs
+need green CI and a reviewer from another track.

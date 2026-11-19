@@ -23,7 +23,11 @@ committed** (`.gitignore` blocks `*.qcow2`, `*.iso`, and `lab/images/`).
 
 Track C will add hosts and switches for DHCP/DNS later (SRS 8.2).
 
-## Option A: run the lab in CML (fewest steps)
+## Building the lab in CML
+
+The lab platform is CML ([ADR-0004](../docs/decisions/0004-cml-as-lab-platform.md)). The SRS
+originally named GNS3. One team member hosts the lab, and the others develop against fake devices
+and join lab sessions.
 
 1. In CML: add 4 × **IOSv** nodes, 1 × **unmanaged switch**, and 1 × **External Connector**.
    Set the connector to **System Bridge** (`bridge0`), so the routers share an L2 segment with the
@@ -36,19 +40,6 @@ Track C will add hosts and switches for DHCP/DNS later (SRS 8.2).
    ios-lab-4 stopped.
 4. Export the lab topology (`Lab → Download lab` YAML) to `lab/cml-topology.yaml` and commit it.
    The YAML references image names only, not the images themselves.
-
-## Option B: run the lab in GNS3 (what SRS 8.1 names)
-
-1. Install GNS3 all-in-one and the **GNS3 VM** (VMware Workstation or VirtualBox).
-2. Copy the IOSv image out of your CML reference-platform ISO:
-   `virl-base-images/iosv-*/vios-adventerprisek9-m*.qcow2`, stored outside the repo or in `lab/images/`.
-3. In GNS3, import the **Cisco IOSv** appliance template (marketplace), point it at the qcow2,
-   and give it 512 MB of RAM. The template also asks for `IOSv_startup_config.img`, which GNS3 provides.
-4. Add a **Cloud** node bound to the host-only adapter, plus an Ethernet switch, and wire them as above.
-5. Apply `configs/ios-lab-N.cfg`. Save the project as `lab/netmgr.gns3` and commit it.
-
-Option A deviates from SRS 8.1 (which names GNS3, with Containerlab as the fallback). If you
-choose it, record the change as `docs/decisions/0004-cml-as-lab-platform.md`.
 
 ## Run natively on Windows (CML sessions)
 
