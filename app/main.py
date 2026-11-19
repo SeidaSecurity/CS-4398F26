@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.auth import PasswordPolicyError, UserValidationError, bootstrap_admin
 from app.config_service import ConfigurationService
 from app.config_templates import TemplateRenderError, render_template
 from app.configuration import DeviceError, NetmikoConnector, record_audit_event
@@ -60,8 +61,28 @@ async def _run_monitoring(interval: float) -> None:
         await asyncio.sleep(interval)
 
 
+def _bootstrap_admin_from_env() -> None:
+    """Create the first admin from env on startup (R7.4); never touches the DB if unset."""
+    log = logging.getLogger(__name__)
+    username, password = os.getenv("ADMIN_USERNAME"), os.getenv("ADMIN_PASSWORD")
+    if not username or not password:
+        log.warning(
+            "ADMIN_USERNAME/ADMIN_PASSWORD are not set, so no first admin will be created. "
+            "If no users exist yet, nobody can log in."
+        )
+        return
+    try:
+        with SessionLocal() as db:
+            outcome = bootstrap_admin(db, username, password)
+            db.commit()
+        log.info("Admin bootstrap: %s", outcome)
+    except (PasswordPolicyError, UserValidationError) as exc:
+        log.error("ADMIN_USERNAME/ADMIN_PASSWORD rejected: %s Fix .env.lab and restart.", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _bootstrap_admin_from_env()
     receivers = None
     if os.getenv("SYSLOG_ENABLED", "false").lower() == "true":
         receivers = SyslogReceivers(

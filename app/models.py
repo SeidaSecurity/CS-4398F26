@@ -141,3 +141,29 @@ class AuditRecord(Base):
     outcome: Mapped[str] = mapped_column(String(32))
     device_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     detail: Mapped[str] = mapped_column(Text, default="")
+
+
+# --- Authentication (SRS 4.7). New tables only, so existing lab databases need no migration. ---
+
+
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (CheckConstraint("role IN ('admin', 'viewer')"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(8))
+    disabled: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # SHA-256 of the cookie token; the token itself is never stored.
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

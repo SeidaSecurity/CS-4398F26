@@ -83,8 +83,8 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 |---|---|---|---|---|---|---|
 | R7.1 Auth required | E | ❌ | — | — | AT-10 | Every endpoint is currently open |
 | R7.2 Role enforcement | E | ❌ | — | — | AT-10 | — |
-| R7.3 Password storage | E | ❌ | — | — | — | — |
-| R7.4 Account management | E | ❌ | — | — | — | — |
+| R7.3 Password storage | E | ✅ | `app/auth.py` (`hash_password`, `validate_password`), `app/common_passwords.py` | `test_auth.py::test_r7_3_*` (length boundaries 7/8/64/65, common list, username, salt) | AT-10 | argon2id hashes; NIST 800-63B rules |
+| R7.4 Account management | E | 🟡 | `auth.create_user`, `auth.bootstrap_admin`, startup hook in `main.py` | `test_r7_4_bootstrap_*`, `test_r7_3_create_user_*` | AT-10 | First admin from env done; account-management API pending (auth increment 6) |
 | R7.5 Session expiry | D | ❌ | — | — | — | — |
 
 ## 4.8 DPI (Track C) — Minimal: R8.1–R8.5 ⏸ deferred (start only after M2)
@@ -97,7 +97,7 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 | NFR-2 DHCP < 500 ms @ 20 clients | ❌ | Depends on R6 |
 | NFR-3 DNS < 50 ms | ❌ | Depends on R5 |
 | NFR-4 1,000 logs/min, no loss | ❌ not measured | Script synthetic syslog load; count stored rows |
-| NFR-5 Salted password hashes | ❌ | Depends on R7.3 |
+| NFR-5 Salted password hashes | ✅ | argon2id with a random salt per hash (`test_r7_3_hash_is_salted_and_not_the_password`) |
 | NFR-6 Credentials encrypted, key outside DB | ❌ | Env-var plaintext today |
 | NFR-7 HTTPS | ❌ | Plain HTTP on :8000 |
 | NFR-8 Audit not modifiable via UI | ✅ | Only `GET /api/v1/audit` exists; no update/delete route |
