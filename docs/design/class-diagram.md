@@ -95,9 +95,29 @@ classDiagram
     Device "1" *-- "0..*" InterfaceStatus
     Device "1" -- "0..*" TopologyLink : a / b
     AuditRecord ..> Device : names (kept after delete)
+
+    class User {
+        +int id
+        +str username «unique, case-insensitive»
+        +str password_hash  (argon2id, never returned)
+        +str role (admin|viewer)
+        +bool disabled
+        +datetime created_at
+    }
+    class UserSession {
+        +int id
+        +str token_hash «unique»  (SHA-256 of cookie token)
+        +int user_id
+        +datetime created_at
+        +datetime expires_at
+    }
+    User "1" *-- "0..*" UserSession : sessions
+    AuditRecord ..> User : actor = username (kept after disable)
 ```
 
-`*--` marks composition: deleting a device cascades to these rows. `AuditRecord` stores the device
+`*--` marks composition: deleting a device (or a user) cascades to these rows. Users are
+disabled, never deleted, so audit history keeps a valid actor. Neither the password nor the
+session token is ever stored in plaintext (R7.3, ADR-0005). `AuditRecord` stores the device
 **name**, not a foreign key, so audit history survives deletion (NFR-8). `LogRecord.source` is a
 hostname string and is not linked to `Device`.
 
@@ -193,6 +213,36 @@ classDiagram
     class DeviceUnreachableError
     class DeviceRejectedError
     class DeviceCredentialError
+    class auth {
+        <<module app/auth.py>>
+        +validate_password(password, username)
+        +hash_password(password) str
+        +verify_password(hash, password) bool
+        +create_user(db, username, password, role) User
+        +update_user(db, user, role, disabled, password) list~str~
+        +bootstrap_admin(db, username, password) str
+        +authenticate(db, username, password) User?
+        +start_session(db, user, hours) token
+        +resolve_session(db, token) User?
+        +end_session(db, token)
+        +current_user(request) User  «FastAPI dependency»
+        +enforce_access(request)  «app-wide dependency»
+    }
+    class PasswordPolicyError
+    class UserValidationError
+    class LastAdminError
+    class AuthRoutes {
+        <<APIRouter /api/v1/auth>>
+        POST login
+        POST logout
+        GET me
+    }
+    class UserRoutes {
+        <<APIRouter /api/v1/users — admin only>>
+        GET list
+        POST create
+        PATCH update
+    }
     class APIRoutes {
         <<FastAPI app/main.py + monitoring.router>>
         devices CRUD
@@ -225,13 +275,28 @@ classDiagram
     APIRoutes --> config_templates
     APIRoutes --> syslog
     APIRoutes --> poller : background task
+    auth ..> PasswordPolicyError : raises
+    auth ..> UserValidationError : raises
+    auth ..> LastAdminError : raises
+    AuthRoutes --> auth
+    UserRoutes --> auth
+    APIRoutes ..> auth : every request passes enforce_access
+    UserRoutes ..> auth : identity via current_user
 ```
+
+`enforce_access` is attached to the whole FastAPI app, not to individual routes. That makes it
+the single point that decides 401/403 for every operation, including routers added later.
 
 ## View layer (`web/src`)
 
-`App` → `Layout` / `Sidebar` (from `nav.tsx`) → pages `Network`, `Logs`, `Devices`, `Push`,
-`History`. Pages call `api` (`api/index.ts`), which resolves to `live.ts` (REST) or `mock.ts`
-(same signatures). Shared UI primitives live in `components/ui/`.
+`main.tsx` → `AuthProvider` (`auth.tsx`, holds the signed-in user) → `App`, which shows `Login`
+when signed out, otherwise `Layout` / `Sidebar` → pages `Network`, `Logs`, `Devices`, `Push`,
+`History`, `Accounts`. `useVisibleNav()` in `nav.tsx` filters admin-only items (`Push`,
+`Accounts`) for viewers, and pages hide write controls with `useAuth().isAdmin`. The server still
+enforces every rule; the UI just doesn't offer what would be refused. Pages call `api`
+(`api/index.ts`), which resolves to `live.ts` (REST) or `mock.ts` (same signatures). Any 401
+fires `netmgr:unauthorized` (`api/session.ts`), which signs the UI out. Shared UI primitives live
+in `components/ui/`.
 
 ## Design principles worth pointing out in the presentation
 
@@ -241,6 +306,11 @@ classDiagram
   (`list_logs`) are separate functions.
 - **DRY / SRP (fixed in P-002).** Push and rollback share `ConfigurationService._apply_change`.
   Route handlers only validate input and map results to HTTP.
+- **Secure by default (single policy point).** Access control is one app-wide dependency
+  (`auth.enforce_access`), not a decorator on each route, so a new route cannot be left open.
+  `tests/test_access_policy.py` proves it by walking every OpenAPI operation.
+- **Separation of policy and mechanism.** `auth.py` holds the rules (password policy, last-admin
+  protection, session validity); `auth_routes.py` and `user_routes.py` only translate them to HTTP.
 - **Exception hierarchy at the boundary.** Netmiko errors become `DeviceError` subclasses, each
   carrying a `status` and an operator-safe message, so the service never inspects library types.
 - **Remaining.** `app/main.py` (385 lines) still holds device/template/log routes. Split it into routers (#19).

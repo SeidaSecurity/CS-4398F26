@@ -7,18 +7,19 @@ The system is a modular monolith in an MVC arrangement (SRS Appendix I):
 ```mermaid
 flowchart LR
     subgraph View["View — web/ (React + Vite + Recharts)"]
-        Pages[Network · Devices · Push · History · Logs]
+        Pages[Login · Network · Devices · Push · History · Logs · Accounts]
     end
     subgraph Controller["Controller — FastAPI"]
-        Routes[app/main.py routes<br/>app/monitoring.py router]
-        Domain[configuration.py · config_templates.py<br/>poller.py · syslog.py]
+        Policy{{auth.enforce_access<br/>401 / 403 for every route}}
+        Routes[app/main.py routes · monitoring.py<br/>auth_routes.py · user_routes.py]
+        Domain[config_service.py · configuration.py · config_templates.py<br/>poller.py · syslog.py · auth.py]
         Adapters[NetmikoConnector · probes.py<br/>SyslogReceivers]
     end
     subgraph Model["Model"]
         ORM[app/models.py SQLAlchemy] --> DB[(PostgreSQL)]
         DTO[app/schemas.py Pydantic]
     end
-    Pages -- REST /api/v1 JSON --> Routes
+    Pages -- REST /api/v1 JSON + session cookie --> Policy --> Routes
     Routes --> Domain --> ORM
     Routes --> DTO
     Domain --> Adapters
@@ -31,14 +32,18 @@ flowchart LR
 |---|---|---|---|
 | `app/models.py`, `app/schemas.py` | Tables and request/response DTOs | shared | contracts |
 | `app/database.py` | Engine, session factory, SQLite FK pragma for tests | shared | — |
-| `app/main.py` | App lifespan (starts syslog and poller), device/config/log/audit routes | A, B | R1, R3, R4 |
+| `app/main.py` | App lifespan (admin bootstrap, syslog, poller), app-wide access policy, device/config/log/audit routes | A, B | R1, R3, R4, R7 |
+| `app/auth.py` | Password policy and hashing, users, sessions, `current_user` and the central `enforce_access` policy | A | R7.1–R7.4, NFR-5 |
+| `app/auth_routes.py`, `app/user_routes.py` | Login/logout/me; admin-only account management | A | R7.1, R7.4, R4.4 |
+| `app/common_passwords.py` | Bundled common-password blocklist (NIST SP 800-63B) | A | R7.3 |
+| `app/config_service.py` | Push/rollback/retrieve orchestration and per-device outcome classification | B | R3.1–R3.6 |
 | `app/monitoring.py` | Read-only monitoring router, time bucketing | A | R2.2, R2.4, R2.6 |
 | `app/poller.py` | Poll state machine and alert raising | A | R2.1, R2.2, R2.5 |
 | `app/probes.py` | ICMP and SNMPv2c adapters, counter-to-bps conversion | A | R2.3 |
 | `app/configuration.py` | Netmiko connector, credential lookup, version and audit writers | B | R3.1–R3.3, R4.4 |
 | `app/config_templates.py` | Placeholder validation and rendering | B | R3.7 |
-| `app/syslog.py` | UDP/TCP listeners, RFC 5424/3164 parser, search | B | R4.1–R4.3 |
-| `web/` | Six screens planned; five present (no Login, no Services) | all | 3.1 |
+| `app/syslog.py` | UDP/TCP listeners, RFC 5424 / Cisco IOS / RFC 3164 parser, search | B | R4.1–R4.3 |
+| `web/` | Login, Network, Devices, Push, History, Logs, Accounts; Services screen (DNS/DHCP) not yet built | all | 3.1 |
 
 **Concurrency.** The API is async. Blocking device I/O runs off the event loop:
 `poll_all` runs via `asyncio.to_thread`, and syslog uses `socketserver` threads. Each syslog
@@ -70,11 +75,16 @@ Window→bucket size: 1h→60 s, 24h→15 min, 7d→2 h. Each sample goes into
 `floor(epoch / bucket) × bucket`. Each bucket gets the mean CPU, summed per-device mean throughput,
 and a distinct count of devices reachable at least once. Empty buckets are omitted.
 
-### 2.4 Configuration versioning and push (`push_configuration`, `save_config_version`)
-De-duplicate target ids while preserving order. For each target: retrieve, save version
-`max(version)+1` as `pre_push`, commit, push, retrieve, save `post_push`, commit. Any exception
-rolls back only that device's uncommitted work, writes a `failed` audit record, and continues
-(R3.5). Version numbers are monotonic per device via the `(device_id, version)` unique constraint.
+### 2.4 Configuration versioning and push (`ConfigurationService`, `save_config_version`)
+De-duplicate target ids while preserving order. For each target, in three phases:
+1. retrieve, save version `max(version)+1` as `pre_push`, and **commit before touching the device**;
+2. apply;
+3. retrieve and save `post_push`.
+
+A failure in phase 1 or 2 is classified (`unreachable`, `rejected`, `credentials`, `failed`)
+from the `DeviceError` type. A failure in phase 3 is `unverified`, because the change *is* on the
+device. Each outcome is audited, with the logged-in user as actor, and the loop continues
+(R3.5, statechart §3). Version numbers are monotonic per device via the `(device_id, version)` unique constraint.
 
 ### 2.5 Template rendering (`config_templates.py`)
 Find placeholders with the regex `\{\{\s*([A-Za-z_]\w*)\s*\}\}`. If any `{{` or `}}` remains after
@@ -83,9 +93,37 @@ placeholder set exactly (reject missing or extra keys). Substitution is literal,
 evaluation, so a value containing `{{` is never re-expanded.
 
 ### 2.6 Syslog parsing (`syslog.parse_syslog`)
-Try RFC 5424 first, then RFC 3164. PRI must be ≤ 191. `facility = PRI // 8` and
-`severity = PRI % 8`. RFC 3164 lacks a year, so the receive year is used. A message that fails
-both formats is kept with `parsed=false` and its raw text (R4.2). Statechart §5.
+Try RFC 5424, then the Cisco IOS default format, then RFC 3164. PRI must be ≤ 191.
+`facility = PRI // 8` and `severity = PRI % 8`. For Cisco IOS, the body keeps
+`%FAC-SEV-MNEMONIC: text`, and an unsynchronized router clock (`*` or `.`) means the receive time
+is used. Formats without a year get the receive year, and a "Dec 31" message received on Jan 1
+is dated the previous year. `source` is the message's hostname, or else the sender's IP. A message
+matching no format is kept with `parsed=false` and its raw text (R4.2). Statechart §5.
+
+### 2.7 Access decision (`auth.enforce_access`, runs before every route)
+```
+path not under /api/v1/  or  (POST /auth/login | /auth/logout)  → allow (public)
+no valid session cookie (unknown, expired, user disabled)        → 401
+non-GET request, or path under /api/v1/users, and role ≠ admin   → audit access.denied; 403
+otherwise                                                         → allow
+```
+Because it is an app-wide dependency, the same decision applies to routes added later.
+`tests/test_access_policy.py` walks every operation in the OpenAPI schema to prove it. It
+uses the schema rather than `app.routes`, which in this FastAPI version omits routes from
+included routers.
+
+### 2.8 Passwords and sessions (`auth.py`)
+- **Password policy** (NIST SP 800-63B): 8–64 characters, not on the bundled blocklist (checked
+  regardless of case), not equal to the username. Applied on account creation, password reset, the
+  env bootstrap, and by `run-lab.ps1` before startup.
+- **Hashing:** argon2id with a random salt per hash. **Login timing:** an unknown or disabled
+  user still costs one hash verification against a dummy hash, so response time doesn't reveal
+  whether a username exists. All failures return one identical message.
+- **Sessions:** a 256-bit random token in an HTTP-only, `SameSite=Lax` cookie. Only its SHA-256
+  hash is stored, with an expiry (8 h). Each request looks the hash up and re-reads the user, so
+  logout, expiry, disabling and role changes all take effect on the next request.
+- **Last-admin guard:** `update_user` refuses (409) any change that would leave zero active
+  admins.
 
 ## 3. Deployment
 
