@@ -11,7 +11,7 @@ network devices, pushes and versions their configurations, collects their syslog
 | Track | Features (SRS §4) | State |
 |---|---|---|
 | A: Platform and monitoring | Device inventory, polling, dashboard, alerts (4.1, 4.2) | Working; connection test (R1.3) and credential encryption (R1.4) still open |
-| A: Authentication | Login, admin/viewer roles (4.7) | In progress on `track-a/7-auth-roles`; **the API is currently open** |
+| A: Authentication | Login, admin/viewer roles, accounts (4.7) | Working: every API route requires login, viewers are read-only ([ADR-0005](docs/decisions/0005-authentication-and-sessions.md)); idle timeout (R7.5) open |
 | B: Configuration and logging | Push, versions, diff, rollback, templates, syslog, search, audit (4.3, 4.4) | Working and validated on the lab (Cisco IOS syslog parsed) |
 | C: Network services | DNS (4.5), DHCP (4.6) | Not started |
 
@@ -26,6 +26,7 @@ Requirement-level detail: [traceability matrix](docs/verification/traceability-m
 | Device configuration | Netmiko over SSH (paramiko pinned below 5 for IOSv, [ADR-0003](docs/decisions/0003-pin-paramiko-for-iosv.md)) |
 | Monitoring | icmplib (reachability), PySNMP v2c (CPU, interfaces, throughput) |
 | Logging | Built-in UDP/TCP syslog listener on port 514: RFC 5424, Cisco IOS, and RFC 3164 formats |
+| Authentication | argon2id password hashes, server-side cookie sessions, one central access policy |
 | Web UI | React + Vite + Recharts in `web/` (talks to the API only) |
 | Tests and CI | pytest (coverage gate ≥ 70%), ruff, mypy, `tsc`; GitHub Actions on every PR |
 | Virtual lab | Cisco Modeling Labs (CML) with IOSv routers ([lab/README.md](lab/README.md)) |
@@ -89,7 +90,7 @@ Never commit credentials.
 
 ## Safety
 
-Lab use only. Authentication is still being added and there is no TLS yet, so never expose
+Lab use only. There is no TLS yet (NFR-7), so never expose
 this stack to the internet, a campus network, or a production network (SRS 6.2).
 
 ## How we work

@@ -54,6 +54,10 @@ Docker Compose stays the packaging for Linux hosts (SRS 5.3.4).
 Copy-Item .env.lab.example .env.lab
 notepad .env.lab        # replace every REPLACE_WITH_* value
 ```
+`ADMIN_USERNAME` / `ADMIN_PASSWORD` create the first admin account on startup, but only while no
+users exist (R7.4, ADR-0005). The password must be 8-64 characters, not a common password, and
+not the username. `run-lab.ps1` checks this before starting, because a rejected password would
+otherwise leave nobody able to log in.
 
 **2. Allow syslog through the firewall** (once, in PowerShell **as Administrator**). VMware's
 adapters are usually on the *Public* profile, so the rules must cover it:
@@ -67,20 +71,24 @@ New-NetFirewallRule -DisplayName "netmgr syslog TCP 514" -Direction Inbound -Pro
 powershell -ExecutionPolicy Bypass -File scripts\run-lab.ps1
 ```
 The script creates `.venv` if needed, installs the project, and checks Python, Node, paramiko < 5
-(ADR-0003), and that `.env.lab` has no placeholders left. It never prints `.env.lab` values. Then it
+(ADR-0003), that `.env.lab` has no placeholders left, and that `ADMIN_PASSWORD` meets the app's
+password policy. It never prints `.env.lab` values. Then it
 starts the API here and the live web UI in a second window. Options: `-CheckOnly` (run the checks,
 start nothing), `-NoWeb` (API only, e.g. while Node is too old), `-Reinstall`.
 `-ExecutionPolicy Bypass` is needed because Windows blocks `.ps1` scripts by default.
 
-**4. Register the routers** on the Devices screen: names `ios-lab-1`…`ios-lab-4` (exactly the keys
+**4. Log in** with `ADMIN_USERNAME` / `ADMIN_PASSWORD`. Create more accounts (for example a
+read-only viewer) on the **Accounts** screen.
+
+**5. Register the routers** on the Devices screen: names `ios-lab-1`…`ios-lab-4` (exactly the keys
 in `.env.lab`), IPs `192.168.198.11`…`.14`.
 
-**5. Smoke-test**, in a second terminal while the app runs:
+**6. Smoke-test**, in a second terminal while the app runs:
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\check-lab.ps1
 ```
-It prints a pass/fail table: API health, a syslog round trip (sent to 127.0.0.1), the firewall
-rules, ping and TCP 22 to each router, and the app's own up/down state for each registered router.
+It logs in as the `.env.lab` admin (values are never printed), then prints a pass/fail table: API
+health, the admin login, a syslog round trip (sent to 127.0.0.1), the firewall rules, ping and TCP 22 to each router, and the app's own up/down state for each registered router.
 "PASS" means *as expected*, so ios-lab-4 passes when it is unreachable. The local syslog test cannot
 prove the routers' syslog gets through, which is why the firewall rows exist; still do the manual
 syslog row in the table below.

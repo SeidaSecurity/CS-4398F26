@@ -9,6 +9,7 @@ commit history and chat exports, and mark those entries "reconstructed".
 | P-001 | 2026-11-17 | Justin | Claude Code (Opus 5.5) | process, all | (uncommitted) |
 | P-002 | 2026-11-17 | Justin | Claude Code (Opus 5.5) | R2.1, R4.3, R4.4, R3.2, R3.5, R1.2, 5.3.3, 10.4 | (uncommitted) |
 | P-003 | 2026-11-18 | Justin | Claude Code (Opus 5.5) | SRS 8.3–8.4 (lab), 5.3.4, ADR-0003 | (uncommitted) |
+| P-004 | 2026-11-19 | Justin | Claude Code (Opus 5.5) | R7.1–R7.4, R3.3, R4.4, NFR-5; SRS 3.1.1 | branch `track-a/7-auth-roles` |
 
 ---
 
@@ -156,6 +157,110 @@ check (`.env.lab` not yet filled in); router-to-PC syslog through the firewall (
 **Human verification:** _(fill in: after filling `.env.lab`, upgrading Node, adding the firewall
 rules and starting the lab, run `run-lab.ps1` then `check-lab.ps1`; paste the table here and note
 any rows that don't match)_
+
+---
+
+## P-004 — MoT session: authentication, roles, and accounts (Track A, taken over by Justin)
+
+**Context given (Prompt 0):** `CLAUDE.md`, SRS §4.7, §3.1.1, §5.2, R3.3/R4.4, `docs/contracts.md`,
+`app/main.py`, `app/monitoring.py`, `app/models.py`, `web/src/`, `scripts/check-lab.ps1`.
+Four design decisions were made *before* the prompt, in conversation: cookie sessions,
+argon2, the first admin from env, and `require_admin` on writes.
+
+**Prompt** (drafted with the agent, sent verbatim). The user added "remember to update prompt
+log", which overrode the prompt's own "don't edit the prompt log" line:
+> Context: CLAUDE.md, SRS §4.7 (R7.1-R7.5), §3.1.1 (login screen), §5.2 (NFR-5), R3.3 and R4.4,
+> docs/contracts.md, app/main.py, app/monitoring.py, app/models.py, web/src/,
+> scripts/check-lab.ps1. This changes the frozen REST auth contract (SRS 9.4), so record it
+> in docs/decisions/.
+>
+> Decisions already made (do not re-decide):
+> - Sessions: HTTP-only, SameSite=Lax cookie holding a random token; server-side sessions
+>   table stores only the token's hash and an expiry, so disabling a user revokes access at once.
+> - Passwords: argon2 via argon2-cffi. NIST 800-63B rule: 8-64 characters, rejected if on a
+>   bundled list of common passwords. Never log or return a password or hash.
+> - First admin: created at startup from ADMIN_USERNAME / ADMIN_PASSWORD only when no users
+>   exist. Add both keys (placeholders only) to .env.lab.example.
+> - Roles: admin and viewer. A require_admin dependency on every state-changing route returns
+>   403 and writes an audit record of the refusal (R7.2). /health stays public.
+>
+> Increments, one capability each:
+> 1. User model, password hashing and policy (R7.3, NFR-5).
+> 2. Admin bootstrap from env.
+> 3. POST /auth/login, POST /auth/logout, GET /auth/me. Failed logins get one generic message
+>    that doesn't reveal whether the username exists (3.1.1); audit success and failure (R4.4).
+> 4. Require a logged-in user on every /api/v1 route (R7.1) and admin on every write (R7.2).
+> 5. Replace the caller-supplied `operator` (query param and push body) with the logged-in
+>    username (R3.3, R4.4).
+> 6. Admin-only account management: create, change role, disable (R7.4); audited; a disabled
+>    user can't log in; the last active admin can't be disabled or demoted.
+> 7. Web: Login screen, redirect to login on 401, write controls hidden for viewers, a minimal
+>    Accounts screen. Keep mock mode working.
+> 8. scripts/check-lab.ps1 logs in (reading ADMIN_* from .env.lab, never printing them), and
+>    lab/README.md documents it.
+>
+> Critical checkpoints to address in the plan:
+> A. ~75 existing tests call an open API: a test fixture logs in as admin; no other assertions
+>    may change.
+> B. A test that enumerates app.routes and proves every write route rejects a viewer (403) and
+>    every /api/v1 route rejects an anonymous caller (401), so a future route can't slip
+>    through.
+> C. The `operator` removal is an API contract change: update contracts.md and the front-end
+>    types; tsc must pass.
+> D. run-lab.ps1 and check-lab.ps1 must still work against my lab.
+>
+> Before coding: show the baseline and the plan, with how each checkpoint is tested. Wait for my OK.
+> Constraints: tests named test_r7_N_...; tests fail before and pass after; thin routes (auth
+> logic in its own module); update the RTM each increment; don't commit; don't edit the
+> prompt log.
+> Done when: ruff, mypy, pytest (coverage ≥ 70%) and tsc pass; I can log in as admin and as
+> viewer on the lab and see the viewer blocked from a push; report one tracking-matrix row
+> per increment.
+
+**Plan review.** The agent proposed four design points; the user approved all four ("design
+points 1-4 are good, Ok to proceed"):
+1. One **central access policy** (an app-wide dependency) instead of a check on each route.
+2. Auth endpoints under `/api/v1/auth/…`.
+3. Sessions last 8 hours from login; idle timeout (R7.5) deferred.
+4. The template-render POST counts as a write.
+
+Two **new checkpoints were found during planning**, from reading the code:
+- **E, the `app.routes` trap:** in FastAPI 0.165, routes added with `include_router` (all six
+  monitoring routes) don't appear in `app.routes`. Checkpoint B as written would have
+  silently skipped them. The route walk uses the OpenAPI schema instead, and asserts a minimum
+  operation count so a partial walk fails.
+- **F, no migrations:** add only new tables, so the user's lab database keeps its devices.
+
+**Performance tracking matrix** (🟢 all pass, no regression · 🔴 fail → analysed)
+
+| Inc | Tests | Cov | ruff | mypy | tsc | Zone | Notes |
+|---|---|---|---|---|---|---|---|
+| 0 | 75 / 75 | 87% | 0 | 0 | ✅ | baseline | 23 routes (from OpenAPI) |
+| 1 | 99 / 99 | 87% | 0 | 0 | — | 🟢 | Users, argon2id, NIST policy, sessions stored as hashes. 24 new tests failed first |
+| 2 | 104 / 104 | 87% | 0 | 0 | — | 🟢 | Admin from env; startup never touches the DB when it's unset |
+| 3 | 111 / 111 | 89% | 0 | 0 | — | 🟢 | Login, logout, me: byte-identical failure bodies, HTTP-only Lax cookie. First fail-before was a test-import mistake, fixed before counting |
+| 4 | 117 / 117 | 89% | 1 → 0 | 0 | — | 🔴 → 🟢 | The policy turned 24 existing tests into 401s, as predicted. Fixed with 2 fixture lines per file and **0 assertion changes**. The route walk covers all 26 operations |
+| 5 | 118 / 118 | 89% | 1 → 0 | 0 | ✅ + build | 🔴 → 🟢 | Exactly 2 tests failed: the intended contract change (actor = logged-in user). The Push screen's free-text "Operator" box was found and removed |
+| 6 | 128 / 128 | 90% | 0 | 0 | — | 🟢 | Accounts API with last-admin protection. The 3 new routes were **automatically** covered by the route walk |
+| 7 | 128 / 128 | 90% | 0 | 0 | ✅ + build | 🟢 | Login screen, role-aware navigation, Accounts screen, write controls hidden for viewers. Verified manually on the lab |
+| 8 | 128 / 128 | 90% | 0 | 0 | ✅ | 🟢 | `check-lab.ps1` logs in: **17/17 PASS against the real lab**. `run-lab.ps1` checks the admin password against the app's own policy |
+
+**Lab findings (validation catching what unit tests can't):**
+1. *Login didn't work after the first restart.* The agent diagnosed it without reading secret
+   values: `ADMIN_PASSWORD` was 6 characters, so the policy rejected it at startup and created
+   no admin. The only signal was a log line in the API window. Fixed by the user, and the gap was
+   closed in increment 8: `run-lab.ps1` now refuses to start with a password the policy would
+   reject (the check calls `app.auth.validate_password`, so there is one source of truth).
+2. *Windows PowerShell 5.1:* `$PSScriptRoot` is empty inside `param()` defaults, so `check-lab.ps1`
+   failed on first run. The default is now resolved after the parameter block.
+
+**Not verified in this session:** automated UI tests (none exist yet, so increment 7 is covered by
+`tsc` plus manual lab checks); idle-session expiry (R7.5, deferred); HTTPS (NFR-7).
+
+**Human verification:** _(fill in: admin and viewer logins on the lab; the viewer's 403 on a push
+via /docs and its `access.denied` audit entry; AT-10 screenshots in
+docs/verification/Acceptance-testSS/; be ready to explain the central policy and why the route
+test walks OpenAPI instead of app.routes)_
 
 ---
 
