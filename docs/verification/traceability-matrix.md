@@ -69,13 +69,13 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 
 | ID | Pri | Status | Implementation | Unit test | Acceptance | Gap / note |
 |---|---|---|---|---|---|---|
-| R6.1 DORA | E | 🟡 | `app/dhcp/packet.py` (RFC 2131 header, RFC 2132 options, RFC 3396 split options) | `test_dhcp_packet.py` (hand-assembled bytes: offsets, broadcast flag, magic cookie, TLVs, 300-byte minimum, malformed packets) | AT-09 | Codec done; allocator and UDP server pending (DHCP increments 3–4) |
+| R6.1 DORA | E | 🟡 | `app/dhcp/packet.py` (codec), `app/dhcp/allocator.py` (RFC 2131 §4.3 state machine) | `test_dhcp_packet.py`, `test_dhcp_allocator.py::test_r6_1_*` (full DORA, allocation order, selecting/init-reboot/renewing, NAK, unknown subnet silent, race without duplicates) | AT-09 | Logic done; UDP server pending (DHCP increment 4) |
 | R6.2 Pools | E | 🟡 | `app/dhcp/pools.py` (subnet/range/gateway/DNS/domain/lease rules, no overlaps), `DhcpPool` | `test_dhcp_pools.py::test_r6_2_*` (network/broadcast vs first/last host, lease 59/60/604800/604801) | AT-09 | Rules done; API and Services screen pending (DHCP increments 5–6) |
 | R6.3 Reservations | E | 🟡 | `pools.create_reservation`, `normalize_mac`, `DhcpReservation` | `test_r6_3_*` (MAC forms incl. Cisco, inside subnet, not gateway, unique per MAC/address, not leased to another device) | AT-09 | Rules done; allocator honours them in increment 3 |
 | R6.4 Lease display | E | ❌ | — | — | AT-09 | — |
 | R6.5 Lease persistence | E | ❌ | — | — | AT-09 | — |
-| R6.6 Expiry/release | E | ❌ | — | — | — | — |
-| R6.7 Exhaustion log | D | ❌ | — | — | — | — |
+| R6.6 Expiry/release | E | 🟡 | `Allocator._release`, `Allocator.sweep`, expired leases reusable | `test_r6_6_*` (release, 60 s offer hold, sweep boundary 3599/3600 s) | AT-09 | Periodic sweep wired into the server in increment 4 |
+| R6.7 Exhaustion log | D | ✅ | `Allocator._log_exhaustion` → `LogRecord` (source `netmgr-dhcp`, severity 4) | `test_r6_7_exhausted_pool_sends_no_offer_and_logs_once_per_minute` | AT-09 | Rate-limited to one entry per pool per minute; visible on the Logs screen |
 
 ## 4.7 Authentication and Access Control (Track A) — Essential
 
