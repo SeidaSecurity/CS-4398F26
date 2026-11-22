@@ -147,6 +147,22 @@ Put the same settings in `.env`, then run `docker compose up --build` and
 
 ## Troubleshooting
 
+- **CML won't start: "Virtualized AMD-V/RVI (or Intel VT-x) is not supported on this platform"**,
+  often right after a **Windows update** (updates can turn Windows' own hypervisor back on). Check:
+  ```powershell
+  systeminfo | Select-String "Hyper-V Requirements" -Context 0,4   # want "VM Monitor Mode Extensions: Yes", not "A hypervisor has been detected"
+  ```
+  If the hypervisor is detected, in **Terminal (Admin)**:
+  ```powershell
+  bcdedit /enum "{current}" | findstr /i hypervisorlaunchtype      # Auto = the cause
+  reg add "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" /v EnableVirtualizationBasedSecurity /t REG_DWORD /d 0 /f
+  bcdedit /set hypervisorlaunchtype off
+  ```
+  then **Restart** (not Shut down). Also untick Hyper-V, Virtual Machine Platform and Windows
+  Hypervisor Platform in `optionalfeatures`, and turn Memory integrity off. Switching back to
+  Docker/WSL: `bcdedit /set hypervisorlaunchtype auto`, set the registry value back to 1,
+  re-enable the features, restart. Disabling VBS lowers Windows' protection while CML runs.
+
 - **DNS rows fail in check-lab with "no reply":** `DNS_ENABLED=true` missing from `.env.lab` (restart after adding it), or port 53 taken (see "DNS service" above). **"NXDOMAIN" instead of an answer:** the zone or record hasn't been created on the Services screen.
 - **No syslog arriving:** allow inbound UDP/TCP 514 in Windows Defender Firewall (step 2 above).
 - **Every router unreachable, even from `ping.exe`:** the lab isn't running or reachable. Check

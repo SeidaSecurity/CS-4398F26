@@ -7,12 +7,12 @@ each one lives and how complete it is.
 |---|---|---|---|
 | 1 | Prompts | [process/prompt-log.md](process/prompt-log.md), agent context in [../CLAUDE.md](../CLAUDE.md), process in [process/agentic-workflow.md](process/agentic-workflow.md) | Started; earlier sessions need reconstructing |
 | 2 | Acceptance test execution with screenshots of every window and pop-up | [verification/acceptance-tests.md](verification/acceptance-tests.md), screenshots in `acceptance/screenshots/AT-xx/` | Cases written; need lab runs and screenshots |
-| 3 | UML class diagram | [design/class-diagram.md](design/class-diagram.md) | Done for Tracks A/B and auth (User, UserSession, `auth` module, routers, Login/Accounts screens); add Track C when built |
-| 4 | System statechart diagrams | [design/statecharts.md](design/statecharts.md) | 8 implemented (incl. operator session and user account), 1 planned (DHCP lease) |
-| 5 | Textual structure and critical algorithms | [design/architecture.md](design/architecture.md) | Done for Tracks A/B and auth (access decision, passwords and sessions); add Track C when built |
+| 3 | UML class diagram | [design/class-diagram.md](design/class-diagram.md) | Done for all tracks: platform/monitoring, configuration/logging, auth, DNS and DHCP |
+| 4 | System statechart diagrams | [design/statecharts.md](design/statecharts.md) | 9 implemented: reachability, alerts, push, rollback, syslog, templates, DHCP lease, operator session, user account |
+| 5 | Textual structure and critical algorithms | [design/architecture.md](design/architecture.md) | Done for all tracks: §2.1–2.10 incl. access decision, DNS resolution, DHCP allocation |
 | 6 | Source code archive | `git archive --format=zip -o netmgr-src.zip HEAD` (excludes `node_modules`, `.venv`) | — |
 | 7 | API docs (javadoc if Java) | Python: OpenAPI at `/docs` when running; optionally `pdoc app -o docs/api` | Optional for Python |
-| 8 | Unit tests for Model/Controller classes | [../tests](../tests), plan in [verification/vv-plan.md](verification/vv-plan.md) | 128 tests, 90% coverage, incl. a route-coverage test for the access policy; none yet for Track C |
+| 8 | Unit tests for Model/Controller classes | [../tests](../tests), plan in [verification/vv-plan.md](verification/vv-plan.md) | 301 tests, 94% coverage across all tracks, incl. the route-coverage test for the access policy |
 | 10 | Presentation | purpose, class diagram, statecharts, acceptance tests, screenshot of GitHub **Insights → Network** graph | Not started |
 
 ## Supporting documents

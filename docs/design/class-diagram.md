@@ -287,11 +287,158 @@ classDiagram
 `enforce_access` is attached to the whole FastAPI app, not to individual routes. That makes it
 the single point that decides 401/403 for every operation, including routers added later.
 
+## Network services subsystems (Track C: `app/dns/`, `app/dhcp/`)
+
+Each is a self-contained package (SRS 5.3.2) with the same layering: rules → pure logic →
+socket service → REST routes. The tables live in `app/models.py` with the rest of the schema.
+
+```mermaid
+classDiagram
+    direction LR
+    class DnsZone {
+        +int id
+        +str name «unique, lowercase»
+        +int default_ttl
+        +int serial  (SOA, bumped on change)
+    }
+    class DnsRecord {
+        +int id
+        +int zone_id
+        +str name  ("@" or relative)
+        +str rtype (A|AAAA|CNAME|PTR)
+        +str value
+        +int? ttl
+    }
+    DnsZone "1" *-- "0..*" DnsRecord : records
+
+    class zones {
+        <<module app/dns/zones.py>>
+        +normalize_name(raw) str
+        +create_zone / update_zone(db, ...)
+        +create_record / update_record / delete_record(db, ...)
+    }
+    class ZoneData {
+        <<frozen dataclass>>
+        +str name
+        +int serial
+        +tuple~RecordData~ records
+        +contains(name) bool
+        +name_exists(name) bool
+        +soa() RR
+    }
+    class resolver {
+        <<module app/dns/resolver.py>>
+        +load_zones(db) list~ZoneData~
+        +answer(request, zones) DNSRecord  «pure»
+    }
+    class DatabaseResolver {
+        +resolve(request, handler) DNSRecord
+    }
+    class BaseResolver {
+        <<dnslib>>
+    }
+    class DnsService {
+        +int port
+        +start()
+        +stop()
+    }
+    BaseResolver <|-- DatabaseResolver
+    DatabaseResolver ..> resolver : answer(load_zones(db))
+    resolver ..> ZoneData
+    DnsService --> DatabaseResolver : UDP + TCP dnslib servers
+    zones ..> DnsZone
+    zones ..> DnsRecord
+
+    class DhcpPool {
+        +int id
+        +str name
+        +str subnet «unique»
+        +str range_start / range_end
+        +str gateway
+        +str dns_servers
+        +str domain
+        +int lease_seconds
+    }
+    class DhcpReservation {
+        +int id
+        +int pool_id
+        +str mac
+        +str ip
+        +str? hostname
+    }
+    class DhcpLease {
+        +int id
+        +int pool_id
+        +str mac
+        +str ip «unique»
+        +str state (offered|bound)
+        +datetime expires_at
+    }
+    DhcpPool "1" *-- "0..*" DhcpReservation
+    DhcpPool "1" *-- "0..*" DhcpLease
+
+    class pools {
+        <<module app/dhcp/pools.py>>
+        +normalize_mac(raw) str
+        +create_pool / update_pool(db, ...)
+        +create_reservation(db, pool, mac, ip, hostname)
+    }
+    class DhcpMessage {
+        <<dataclass app/dhcp/packet.py>>
+        +int op, xid, flags
+        +bytes chaddr
+        +IPv4Address ciaddr, yiaddr, siaddr, giaddr
+        +dict options
+        +message_type / requested_ip / server_id / hostname
+    }
+    class packet {
+        <<module>>
+        +parse(bytes) DhcpMessage
+        +build(DhcpMessage) bytes
+    }
+    class Allocator {
+        -Session db
+        -IPv4Address server_ip
+        +handle(DhcpMessage) DhcpMessage?
+        +sweep() int
+        -_discover() / _request() / _release()
+        -_claim(pool, mac, ip) DhcpLease?
+    }
+    class DhcpService {
+        +str bound_address  (= DHCP_SERVER_IP)
+        +int port
+        +start()
+        +stop()
+    }
+    packet ..> DhcpMessage
+    Allocator ..> DhcpMessage : request in, reply out
+    Allocator --> DhcpLease : one row per address
+    DhcpService --> Allocator : one per packet
+    DhcpService ..> packet : parse / build
+    pools ..> DhcpPool
+    pools ..> DhcpReservation
+
+    class DnsRoutes {
+        <<APIRouter /api/v1/dns>>
+    }
+    class DhcpRoutes {
+        <<APIRouter /api/v1/dhcp>>
+    }
+    DnsRoutes --> zones
+    DhcpRoutes --> pools
+    DhcpRoutes ..> DhcpLease : list / release
+```
+
+Exceptions: `DnsValidationError` / `DnsConflictError` and `DhcpValidationError` / `DhcpConflictError`
+map to HTTP 422 / 409 in the routes. `DhcpPacketError` makes the server drop a malformed packet.
+Both services are started from the app lifespan and are `None` in `app.state` when they could not
+start (port taken, or DHCP's safety check failed).
+
 ## View layer (`web/src`)
 
 `main.tsx` → `AuthProvider` (`auth.tsx`, holds the signed-in user) → `App`, which shows `Login`
 when signed out, otherwise `Layout` / `Sidebar` → pages `Network`, `Logs`, `Devices`, `Push`,
-`History`, `Accounts`. `useVisibleNav()` in `nav.tsx` filters admin-only items (`Push`,
+`History`, `Services` (DNS and DHCP tabs: `Services.tsx`, `ServicesDhcp.tsx`), `Accounts`. `useVisibleNav()` in `nav.tsx` filters admin-only items (`Push`,
 `Accounts`) for viewers, and pages hide write controls with `useAuth().isAdmin`. The server still
 enforces every rule; the UI just doesn't offer what would be refused. Pages call `api`
 (`api/index.ts`), which resolves to `live.ts` (REST) or `mock.ts` (same signatures). Any 401
