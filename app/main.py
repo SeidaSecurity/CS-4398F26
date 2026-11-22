@@ -130,15 +130,26 @@ async def lifespan(app: FastAPI):
     # Each network service starts independently: if one can't bind its port, it logs why and
     # the others keep running (SRS 5.3.1). app.state exposes what actually started.
     app.state.syslog_receivers = receivers = _start_syslog()
-    app.state.dns_service = dns_service = (
-        start_dns_service(
-            SessionLocal,
-            os.getenv("DNS_HOST", "0.0.0.0"),
-            int(os.getenv("DNS_PORT", "53")),
+    # Bad forwarding settings must not take down monitoring, syslog, or DHCP.
+    try:
+        dns_service = (
+            start_dns_service(
+                SessionLocal,
+                os.getenv("DNS_HOST", "0.0.0.0"),
+                int(os.getenv("DNS_PORT", "53")),
+                upstream_host=os.getenv("DNS_UPSTREAM_HOST") or None,
+                upstream_port=int(os.getenv("DNS_UPSTREAM_PORT", "53")),
+                forward_timeout=float(os.getenv("DNS_FORWARD_TIMEOUT", "2")),
+            )
+            if os.getenv("DNS_ENABLED", "false").lower() == "true"
+            else None
         )
-        if os.getenv("DNS_ENABLED", "false").lower() == "true"
-        else None
-    )
+    except ValueError as exc:
+        logging.getLogger(__name__).error(
+            "DNS disabled: invalid DNS_PORT/DNS_UPSTREAM_PORT/DNS_FORWARD_TIMEOUT: %s", exc
+        )
+        dns_service = None
+    app.state.dns_service = dns_service
     app.state.dhcp_service = dhcp_service = (
         start_dhcp_service(
             SessionLocal,

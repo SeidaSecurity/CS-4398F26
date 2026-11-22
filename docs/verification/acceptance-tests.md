@@ -113,8 +113,16 @@ no other program on port 53. Run the commands in a PowerShell window on the lab 
 window logs "DNS could not listen…", the app (syslog, polling, UI) keeps working, and
 `check-lab.ps1` shows the DNS rows failing with the "Is port … free?" hint.
 
-**Out of scope here (Desirable, later):** forwarding names outside local zones (R5.4); for now
-`example.com` returns REFUSED.
+**Optional R5.4 follow-up (run after the forwarding PR is merged):** Configure
+`DNS_UPSTREAM_HOST` to a reachable IPv4 DNS resolver, restart with
+`DNS_ENABLED=true`, and query a name outside the local zones from a lab client
+(e.g. `Resolve-DnsName example.org -Server 127.0.0.1 -DnsOnly`). Expect a
+forwarded response with the upstream TTL and AA=0. Confirm local `lab.local`
+answers are still authoritative; intentionally stop the upstream and confirm
+outside names return SERVFAIL without interrupting local answers. Capture
+command output screenshots and record the actual results. With no upstream
+configured, outside names continue to return REFUSED. R5.5 caching remains out
+of scope.
 
 ## AT-09 DHCP — R6.1–R6.5 *(Track C — blocked)*
 

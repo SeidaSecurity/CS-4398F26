@@ -1,4 +1,4 @@
-"""Authoritative resolver (R5.1, R5.3): answers from operator-defined zones, no sockets here.
+"""Authoritative resolver (R5.1, R5.3) with optional forwarding (R5.4).
 
 `answer()` is pure: zone data in, DNS reply out, so it is tested with real query packets
 (tests/test_dns_resolver.py). `DatabaseResolver` adapts it to dnslib's server and reads the
@@ -13,6 +13,7 @@ from dnslib.server import BaseResolver
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.dns.forwarder import DnsForwarder
 from app.models import DnsZone
 
 NEGATIVE_TTL = 300  # SOA minimum: how long resolvers may cache "no such name" (RFC 2308)
@@ -133,9 +134,18 @@ def answer(request: DNSRecord, zones: list[ZoneData]) -> DNSRecord:
 class DatabaseResolver(BaseResolver):
     """dnslib resolver that answers from the database (fresh read per query)."""
 
-    def __init__(self, session_factory: Callable[[], Session]) -> None:
+    def __init__(
+        self, session_factory: Callable[[], Session], forwarder: DnsForwarder | None = None
+    ) -> None:
         self.session_factory = session_factory
+        self.forwarder = forwarder
 
     def resolve(self, request: DNSRecord, handler: object) -> DNSRecord:
         with self.session_factory() as db:
-            return answer(request, load_zones(db))
+            local_zones = load_zones(db)
+        name = str(request.q.qname).lower().rstrip(".")
+        # Never forward a name in an authoritative zone, including its NXDOMAIN
+        # and NODATA answers; these must come from our own zone database.
+        if _zone_for(name, local_zones) is None and self.forwarder is not None:
+            return self.forwarder.forward(request)
+        return answer(request, local_zones)
