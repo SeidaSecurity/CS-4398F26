@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
 from datetime import datetime
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -18,9 +18,17 @@ from app.auth import (
     enforce_access,
 )
 from app.auth_routes import router as auth_router
+from app.config_diff import DiffTooLargeError, side_by_side
 from app.config_service import ConfigurationService
 from app.config_templates import TemplateRenderError, render_template
 from app.configuration import DeviceError, NetmikoConnector, record_audit_event
+from app.connection_test import ConnectionTester
+from app.credentials import (
+    CredentialKeyError,
+    CredentialValidationError,
+    StoredOrEnvironmentCredentials,
+    store_credentials,
+)
 from app.database import Base, SessionLocal, engine, get_session
 from app.dhcp.routes import router as dhcp_router
 from app.dhcp.server import start_dhcp_service
@@ -32,6 +40,7 @@ from app.poller import poll_all
 from app.probes import combined_probe
 from app.schemas import (
     AuditRecordRead,
+    ConfigDiffRead,
     ConfigPushRequest,
     ConfigPushResult,
     ConfigTemplateCreate,
@@ -41,6 +50,8 @@ from app.schemas import (
     ConfigTemplateUpdate,
     ConfigVersionDetail,
     ConfigVersionRead,
+    ConnectionTestRead,
+    ConnectionTestRequest,
     DeviceCreate,
     DeviceRead,
     DeviceUpdate,
@@ -138,7 +149,7 @@ async def lifespan(app: FastAPI):
         if os.getenv("DHCP_ENABLED", "false").lower() == "true"
         else None
     )
-    app.state.device_connector = NetmikoConnector()
+    app.state.device_connector = NetmikoConnector(StoredOrEnvironmentCredentials())
     monitoring_task = None
     try:
         if os.getenv("MONITORING_ENABLED", "false").lower() == "true":
@@ -179,24 +190,98 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+CREDENTIAL_FIELDS = {"username", "password", "secret"}
+
+
+def _apply_credentials(
+    session: Session,
+    device: Device,
+    username: str | None,
+    password: str | None,
+    secret: str | None,
+) -> bool:
+    """Store credentials sent with a create/update (R1.1). Returns True if anything changed."""
+    if not (username or password or secret):
+        return False
+    existing = device.credential
+    if not password:
+        if existing is None:
+            raise CredentialValidationError(
+                "Give both a username and a password to store credentials for this device."
+            )
+        if username:
+            existing.username = username.strip()  # rename only; password stays encrypted
+        return bool(username)
+    kept_secret = existing.secret_ciphertext if existing is not None and not secret else None
+    name = username or (existing.username if existing is not None else "")
+    if not name:
+        raise CredentialValidationError(
+            "Give both a username and a password to store credentials for this device."
+        )
+    record = store_credentials(session, device, name, password, secret)
+    if kept_secret is not None:
+        record.secret_ciphertext = kept_secret  # enable secret unchanged when not re-entered
+    return True
+
+
+def _credential_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, CredentialKeyError):
+        return HTTPException(status_code=503, detail=str(exc))  # server misconfiguration
+    return HTTPException(status_code=422, detail=str(exc))
+
+
 @app.post("/api/v1/devices", response_model=DeviceRead, status_code=201)
 def create_device(
     payload: DeviceCreate,
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
-    device = Device(**payload.model_dump())
+    device = Device(**payload.model_dump(exclude=CREDENTIAL_FIELDS))
     session.add(device)
     try:
-        record_audit_event(session, user.username, "device.create", "succeeded", device.name)
+        session.flush()  # a duplicate name fails here, before any credentials are stored
+        _apply_credentials(session, device, payload.username, payload.password, payload.secret)
+        detail = "with stored credentials" if device.has_credentials else ""
+        record_audit_event(
+            session, user.username, "device.create", "succeeded", device.name, detail
+        )
         session.commit()
     except IntegrityError as exc:
         session.rollback()
         raise HTTPException(
             status_code=409, detail="A device with that name already exists"
         ) from exc
+    except (CredentialKeyError, CredentialValidationError) as exc:
+        session.rollback()
+        raise _credential_http_error(exc) from exc
     session.refresh(device)
     return device
+
+
+@app.post("/api/v1/devices/test-connection", response_model=ConnectionTestRead)
+def check_device_connection(
+    payload: ConnectionTestRequest,
+    request: Request,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    """R1.3: check reachability and login with unsaved form values; nothing is saved.
+
+    A sync route, so FastAPI runs the (up to ~18 s) device I/O in its thread pool.
+    """
+    tester = getattr(request.app.state, "connection_tester", None) or ConnectionTester()
+    result = tester.run(**payload.model_dump())
+    detail = "passed" if result.ok else f"failed at {result.failed_stage}"
+    record_audit_event(
+        session,
+        user.username,
+        "device.test_connection",
+        "succeeded" if result.ok else "failed",
+        f"{payload.management_ip}:{payload.ssh_port}",
+        detail,
+    )
+    session.commit()
+    return result.as_dict()
 
 
 @app.get("/api/v1/devices", response_model=list[DeviceRead])
@@ -214,16 +299,25 @@ def update_device(
     device = session.get(Device, device_id)
     if device is None:
         raise HTTPException(status_code=404, detail="Device not found")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    for field, value in payload.model_dump(exclude_unset=True, exclude=CREDENTIAL_FIELDS).items():
         setattr(device, field, value)
     try:
-        record_audit_event(session, user.username, "device.update", "succeeded", device.name)
+        changed = _apply_credentials(
+            session, device, payload.username, payload.password, payload.secret
+        )
+        detail = "credentials updated" if changed else ""
+        record_audit_event(
+            session, user.username, "device.update", "succeeded", device.name, detail
+        )
         session.commit()
     except IntegrityError as exc:
         session.rollback()
         raise HTTPException(
             status_code=409, detail="A device with that name already exists"
         ) from exc
+    except (CredentialKeyError, CredentialValidationError) as exc:
+        session.rollback()
+        raise _credential_http_error(exc) from exc
     session.refresh(device)
     return device
 
@@ -270,6 +364,40 @@ def get_configuration_versions(device_id: int, session: Session = Depends(get_se
         .order_by(ConfigVersion.version.desc())
     )
     return list(session.scalars(statement))
+
+
+@app.get(
+    "/api/v1/devices/{device_id}/config/diff",
+    response_model=ConfigDiffRead,
+    response_model_exclude_none=True,
+)
+def get_configuration_diff(
+    device_id: int,
+    from_version: int = Query(alias="from", ge=1),
+    to_version: int = Query(alias="to", ge=1),
+    session: Session = Depends(get_session),
+):
+    """R3.4: diff two stored versions on the server (sync, so it runs in the thread pool)."""
+    if session.get(Device, device_id) is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    records = {}
+    for number in (from_version, to_version):
+        record = session.scalar(
+            select(ConfigVersion).where(
+                ConfigVersion.device_id == device_id, ConfigVersion.version == number
+            )
+        )
+        if record is None:
+            raise HTTPException(
+                status_code=404, detail=f"Configuration version {number} not found"
+            )
+        records[number] = record
+    left, right = records[from_version], records[to_version]
+    try:
+        diff = side_by_side(left.configuration, right.configuration)
+    except DiffTooLargeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"from_version": left, "to_version": right, **diff}
 
 
 @app.get(

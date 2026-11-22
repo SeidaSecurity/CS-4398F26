@@ -29,6 +29,12 @@ SNMP_COLUMNS = {
     "in_octets": "1.3.6.1.2.1.31.1.1.1.6",
     "out_octets": "1.3.6.1.2.1.31.1.1.1.10",
 }
+# Vendor tables (R2.3): walked when present; a device without them still reports the rest.
+OPTIONAL_SNMP_COLUMNS = {
+    "cisco_cpu": "1.3.6.1.4.1.9.9.109.1.1.1.1.8",  # CISCO-PROCESS-MIB cpmCPUTotal5minRev (%)
+    "mem_used": "1.3.6.1.4.1.9.9.48.1.1.1.5",  # CISCO-MEMORY-POOL-MIB ciscoMemoryPoolUsed
+    "mem_free": "1.3.6.1.4.1.9.9.48.1.1.1.6",  # CISCO-MEMORY-POOL-MIB ciscoMemoryPoolFree
+}
 
 
 @dataclass
@@ -56,7 +62,8 @@ async def _fetch_snmp(address: str, community: str) -> dict[str, Any]:
         if error or status:
             raise RuntimeError(f"SNMP GET failed: {error or status}")
         data: dict[str, Any] = {"uptime": int(bindings[0][1])}
-        for name, oid in SNMP_COLUMNS.items():
+
+        async def walk(oid: str) -> dict[int, Any]:
             column = {}
             async for error, status, _, bindings in walk_cmd(
                 *args, ObjectType(ObjectIdentity(oid)), lexicographicMode=False
@@ -65,18 +72,42 @@ async def _fetch_snmp(address: str, community: str) -> dict[str, Any]:
                     raise RuntimeError(f"SNMP walk failed: {error or status}")
                 for returned_oid, value in bindings:
                     column[int(returned_oid[-1])] = value
-            data[name] = column
+            return column
+
+        for name, oid in SNMP_COLUMNS.items():
+            data[name] = await walk(oid)
+        for name, oid in OPTIONAL_SNMP_COLUMNS.items():
+            try:
+                data[name] = await walk(oid)
+            except RuntimeError:
+                data[name] = {}
         return data
     finally:
         engine.close_dispatcher()
 
 
+def _cpu_percent(data: dict[str, Any]) -> float | None:
+    """Average HOST-RESOURCES processor load; else the Cisco 5-minute CPU (IOS/IOSv)."""
+    for column in ("cpu", "cisco_cpu"):
+        loads = [int(value) for value in data.get(column, {}).values()]
+        if loads:
+            return sum(loads) / len(loads)
+    return None
+
+
+def _memory_percent(data: dict[str, Any]) -> float | None:
+    """Used share of all Cisco memory pools (processor, I/O, ...)."""
+    used = sum(int(value) for value in data.get("mem_used", {}).values())
+    free = sum(int(value) for value in data.get("mem_free", {}).values())
+    return used / (used + free) * 100 if used + free > 0 else None
+
+
 def snmp_probe(device: Device, community: str) -> ProbeResult:
     data = asyncio.run(_fetch_snmp(device.management_ip, community))
-    cpu_loads = [int(value) for value in data["cpu"].values()]
     result = ProbeResult(
         reachable=True,
-        cpu_pct=sum(cpu_loads) / len(cpu_loads) if cpu_loads else None,
+        cpu_pct=_cpu_percent(data),
+        memory_pct=_memory_percent(data),
         interfaces=[
             {
                 "index": int(index),

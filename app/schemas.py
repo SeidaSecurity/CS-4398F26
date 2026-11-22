@@ -12,11 +12,18 @@ def as_utc(value: datetime) -> datetime:
 UTCDateTime = Annotated[datetime, AfterValidator(as_utc)]
 
 
-class DeviceCreate(BaseModel):
+class DeviceBase(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     management_ip: str = Field(min_length=1, max_length=255)
     platform: str = Field(default="cisco_ios", min_length=1, max_length=80)
     ssh_port: int = Field(default=22, ge=1, le=65535)
+
+
+class DeviceCreate(DeviceBase):
+    # Write-only (R1.1, R1.4): stored encrypted, never part of any response model.
+    username: str | None = Field(default=None, max_length=120)
+    password: str | None = Field(default=None, max_length=256)
+    secret: str | None = Field(default=None, max_length=256)
 
 
 class PartialUpdate(BaseModel):
@@ -37,13 +44,17 @@ class DeviceUpdate(PartialUpdate):
     management_ip: str | None = Field(default=None, min_length=1, max_length=255)
     platform: str | None = Field(default=None, min_length=1, max_length=80)
     ssh_port: int | None = Field(default=None, ge=1, le=65535)
+    username: str | None = Field(default=None, max_length=120)  # write-only
+    password: str | None = Field(default=None, max_length=256)  # write-only
+    secret: str | None = Field(default=None, max_length=256)  # write-only
 
 
-class DeviceRead(DeviceCreate):
+class DeviceRead(DeviceBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     created_at: datetime
+    has_credentials: bool  # the only credential information ever returned
 
 
 class ConfigVersionRead(BaseModel):
@@ -138,6 +149,51 @@ class AuditRecordRead(BaseModel):
     outcome: str
     device_name: str | None
     detail: str
+
+
+class DiffLine(BaseModel):
+    n: int
+    text: str
+
+
+class DiffRow(BaseModel):
+    kind: Literal["same", "removed", "added", "changed"]
+    left: DiffLine | None = None
+    right: DiffLine | None = None
+
+
+class ConfigDiffRead(BaseModel):
+    """R3.4: side-by-side diff of two stored versions (absent sides are omitted)."""
+
+    from_version: ConfigVersionRead
+    to_version: ConfigVersionRead
+    rows: list[DiffRow]
+    added: int
+    removed: int
+
+
+class ConnectionTestRequest(BaseModel):
+    """Unsaved Add-device form values (R1.3); credentials are used once and never stored."""
+
+    management_ip: str = Field(min_length=1, max_length=255)
+    platform: str = Field(default="cisco_ios", min_length=1, max_length=80)
+    ssh_port: int = Field(default=22, ge=1, le=65535)
+    username: str | None = Field(default=None, max_length=120)
+    password: str | None = Field(default=None, max_length=256)
+    secret: str | None = Field(default=None, max_length=256)
+
+
+class ConnectionCheck(BaseModel):
+    stage: Literal["reachability", "login", "enable"]
+    ok: bool
+    message: str
+
+
+class ConnectionTestRead(BaseModel):
+    ok: bool
+    failed_stage: Literal["reachability", "login", "enable"] | None
+    message: str
+    checks: list[ConnectionCheck]
 
 
 class DeviceStatusRead(BaseModel):

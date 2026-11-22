@@ -12,10 +12,10 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 
 | ID | Pri | Status | Implementation | Unit test | Acceptance | Gap / note |
 |---|---|---|---|---|---|---|
-| R1.1 Add device | E | 🟡 | `app/main.py` `create_device` | `test_api.py::test_device_create_and_duplicate_conflict` | AT-01 | Credentials are not captured in the add form (they come from an env var) |
+| R1.1 Add device | E | ✅ | `create_device` with write-only `username`/`password`/`secret`; Devices form fields | `test_device_credentials_api.py::test_r1_1_*` | AT-01 | Credentials entered with the device (ADR-0008); env JSON remains a lab fallback |
 | R1.2 Edit/remove | E | ✅ | `update_device`, `delete_device`, `schemas.PartialUpdate` | `test_device_patch_then_delete`, `test_r1_2_patch_rejects_explicit_null` | AT-01 | — |
-| R1.3 Connection test | E | ❌ | — | — | AT-01 | No test connection before saving; no "save anyway" path |
-| R1.4 Credential protection | E | 🟡 | `app/configuration.py` `EnvironmentCredentials` | — | — | Never returned to the browser ✔, but stored in plaintext in an env var, not encrypted |
+| R1.3 Connection test | E | ✅ | `app/connection_test.py` (TCP 3 s → SSH login/enable 5 s timeouts), `POST /api/v1/devices/test-connection`; Devices "Test and add" with Fix / Save anyway | `test_connection_test.py::test_r1_3_*` (fakes; stage named, password never echoed; nothing saved) | AT-01 | Testing is audited (`device.test_connection`); edit saves without a test |
+| R1.4 Credential protection | E | ✅ | `app/credentials.py` (Fernet, key from `NETMGR_SECRET_KEY`), `DeviceCredential`; responses expose only `has_credentials` | `test_credentials.py::test_r1_4_*`, `test_r1_4_credentials_never_appear_in_any_device_response` (walks every device response, audit, errors) | AT-01 | No plaintext fallback for stored credentials |
 | R1.5 Device grouping | D | ❌ | — | — | — | Needed for "device group" push (4.3.4 step 1) |
 | R1.6 Discovery | M | ⏸ | — | — | — | — |
 
@@ -25,9 +25,9 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 |---|---|---|---|---|---|---|
 | R2.1 Recurring poll | E | ✅ | `main.py` `poll_interval_seconds`, `_run_monitoring`, `poller.poll_all` | `test_r2_1_poll_interval_defaults_to_60_seconds` | AT-02 | Default fixed to 60 s (P-002) |
 | R2.2 Reachability state | E | ✅ | `poller.poll_device`, `GET /monitoring/status` | `test_poller_failure_and_recovery` | AT-02 | — |
-| R2.3 Metric collection | E | 🟡 | `app/probes.py` | — (probes 27% covered) | AT-02 | Memory not collected; no unit tests for SNMP parsing/counter math |
+| R2.3 Metric collection | E | ✅ | `app/probes.py`: ICMP RTT; SNMP CPU (HOST-RESOURCES, else CISCO-PROCESS-MIB 5-min), memory (CISCO-MEMORY-POOL-MIB), interfaces, throughput from 64-bit counters | `test_snmp_probe.py::test_r2_3_*` (fake fetch: Cisco CPU/memory, preference, missing tables, rates, counter reset, fallbacks) | AT-02 | Lab: `scripts/check_snmp.py` PASS on ios-lab-1..3 (2026-11-21: CPU 0.0%, memory ~31%, 5 interfaces) |
 | R2.4 Dashboard | E | ✅ | `web/src/pages/Network.tsx` | — | AT-02 | Check "alerting devices sorted to top" (3.1.2) |
-| R2.5 Alerting | E | 🟡 | `poller.poll_device` | `test_poller_failure_and_recovery` | AT-03 | Two-failure alert ✔; **metric-threshold alerts missing** |
+| R2.5 Alerting | E | ✅ | `poller.poll_device` (two-failure down alert), `poller._check_cpu` + `MetricAlert` (CPU ≥ `CPU_ALERT_PERCENT`, default 90) | `test_poller_failure_and_recovery`, `test_cpu_alerts.py::test_r2_5_*` (89.9/90/90.1 boundary; checkpoint F: down and CPU alerts independent) | AT-03 | One CPU alert per episode; resolves when CPU < threshold; no reading leaves it unchanged |
 | R2.6 Historical graphs | D | ✅ | `monitoring.py` metrics, `TimeSeries.tsx` | `test_monitoring_response_shapes_after_poll`, `test_invalid_metrics_window` | AT-02 | — |
 | R2.7 Metric retention | D | ❌ | — | — | — | — |
 
@@ -38,7 +38,7 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 | R3.1 Push | E | ✅ | `ConfigurationService.push`, `NetmikoConnector.push` | `test_push_saves_versions_and_continues_after_device_failure` | AT-04 | Push by group not possible until R1.5 |
 | R3.2 Retrieval | E | ✅ | `ConfigurationService.retrieve`; pre-push capture | `test_push_saves_versions_*`, `test_r3_2_retrieve_failure_returns_actionable_502_and_is_audited` | AT-04 | — |
 | R3.3 Version history | E | ✅ | `save_config_version`; operator = logged-in user (`auth.current_user`) | `test_r3_3_identity_comes_from_the_session_not_a_supplied_operator` | AT-05 | Caller-supplied `operator` removed (ADR-0005) |
-| R3.4 Version comparison | E | 🟡 | `web/src/lib/diff.ts`, `History.tsx` | — (no diff tests) | AT-05 | Works in the UI, but the diff is computed in the front end with no tests (SRS 6.2 puts logic in the back end). Fix: back-end diff endpoint with tests, or front-end unit tests |
+| R3.4 Version comparison | E | ✅ | `app/config_diff.py` (LCS port), `GET /api/v1/devices/{id}/config/diff?from=&to=`; `History.tsx` renders only | `test_config_diff.py::test_r3_4_*` (52 parity fixtures captured from the original `diff.ts`, cap, 404s, shape) | AT-05 | Diff moved to the back end (SRS 6.2); `web/src/api/mockDiff.ts` serves mock mode only; ≤5,000 lines per side (worst case ~3.5 s) |
 | R3.5 Independent failure | E | ✅ | `ConfigurationService._apply_change`, `configuration.DeviceError` hierarchy, `find_rejection` | `test_push_saves_versions_*`, `test_r3_5_unreachable_*`, `test_r3_5_failed_read_back_*`, `test_configuration.py` (classification) | AT-04 | Statuses: succeeded / unverified / rejected / unreachable / credentials / not_found / failed (P-002) |
 | R3.6 Rollback | D | ✅ | `ConfigurationService.rollback` | `test_restore_*` (3 tests) | AT-05 | Replays the config; leaves in place any lines added later (see contracts.md) |
 | R3.7 Templates | D | ✅ | `config_templates.py`, template routes | `test_config_templates.py`, `test_configuration_template_*` | AT-04 | — |
@@ -98,11 +98,11 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 | NFR-3 DNS < 50 ms | ✅ | Measured on the CML lab (2026-11-19, real SQLite DB, `scripts/dns_probe.py`): median 1.41 ms, max 2.84 ms over 20 queries. Per-query DB read is fast enough; no cache needed (ADR-0006 point 5) |
 | NFR-4 1,000 logs/min, no loss | ❌ not measured | Script synthetic syslog load; count stored rows |
 | NFR-5 Salted password hashes | ✅ | argon2id with a random salt per hash (`test_r7_3_hash_is_salted_and_not_the_password`) |
-| NFR-6 Credentials encrypted, key outside DB | ❌ | Env-var plaintext today |
+| NFR-6 Credentials encrypted, key outside DB | ✅ | Fernet ciphertext in `device_credentials`; key only in the environment (`test_r1_4_database_holds_only_ciphertext`, wrong/missing-key tests); ADR-0008 |
 | NFR-7 HTTPS | ❌ | Plain HTTP on :8000 |
 | NFR-8 Audit not modifiable via UI | ✅ | Only `GET /api/v1/audit` exists; no update/delete route |
 | 5.3.1 One failing subsystem doesn't stop the others | ✅ | DNS and syslog log a bind failure and the app keeps running (`test_5_3_1_*`; the syslog case crashed startup before, proven fail-before) |
-| 5.3.2 ≥70% coverage, CI on every PR | 🟡 | 86% locally; CI workflow in `.github/workflows/ci.yml` (enable branch protection on `main` to finish) |
+| 5.3.2 ≥70% coverage, CI on every PR | 🟡 | 95% locally (408 tests); CI workflow in `.github/workflows/ci.yml` (enable branch protection on `main` to finish) |
 | 5.3.3 Actionable error messages | 🟡 | Config retrieve/push/rollback fixed (P-002, `test_5_3_3_*`); other screens not yet reviewed |
 | 5.3.5 In-program help (config, DNS, DHCP screens) | ✅ | Every field on the Services DNS and DHCP tabs has format help (`HELP` in `Services.tsx` / `ServicesDhcp.tsx`); Push has template placeholder help |
 | 5.3.4 Single Docker Compose deploy | 🟡 | Compose exists; web UI not included in it |

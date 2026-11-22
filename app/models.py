@@ -32,6 +32,14 @@ class Device(Base):
     config_versions: Mapped[list["ConfigVersion"]] = relationship(
         back_populates="device", cascade="all, delete-orphan"
     )
+    # Encrypted credentials live in their own table (R1.4, ADR-0008); no column on devices.
+    credential: Mapped["DeviceCredential | None"] = relationship(
+        back_populates="device", cascade="all, delete-orphan", uselist=False
+    )
+
+    @property
+    def has_credentials(self) -> bool:
+        return self.credential is not None
 
 
 class ConfigVersion(Base):
@@ -95,6 +103,22 @@ class Alert(Base):
     message: Mapped[str] = mapped_column(Text)
     raised_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class MetricAlert(Base):
+    """Marks an alert as a metric-threshold alert (R2.5). A new table, so `alerts` is unchanged.
+
+    Alerts without a row here are device-down alerts; the two kinds are raised and resolved
+    independently (checkpoint F).
+    """
+
+    __tablename__ = "metric_alerts"
+
+    alert_id: Mapped[int] = mapped_column(
+        ForeignKey("alerts.id", ondelete="CASCADE"), primary_key=True
+    )
+    metric: Mapped[str] = mapped_column(String(40))
+    threshold: Mapped[float] = mapped_column(Float)
 
 
 class InterfaceStatus(Base):
@@ -273,3 +297,22 @@ class DhcpLease(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     pool: Mapped[DhcpPool] = relationship(back_populates="leases")
+
+
+# --- Encrypted device credentials (R1.1, R1.4, NFR-6). New table only. -------------------------
+
+
+class DeviceCredential(Base):
+    """Fernet ciphertext only; the key comes from NETMGR_SECRET_KEY and is never stored here."""
+
+    __tablename__ = "device_credentials"
+
+    device_id: Mapped[int] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True
+    )
+    username: Mapped[str] = mapped_column(String(120))
+    password_ciphertext: Mapped[str] = mapped_column(Text)
+    secret_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    device: Mapped[Device] = relationship(back_populates="credential")

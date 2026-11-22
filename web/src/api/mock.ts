@@ -1,4 +1,7 @@
 import type {
+  ConfigDiff,
+  ConnectionTestRequest,
+  ConnectionTestResult,
   Alert, AuditRecord, ConfigPushRequest, ConfigPushResult, ConfigVersion,
   ConfigTemplate, ConfigTemplateCreate, ConfigTemplateRenderRequest,
   ConfigVersionDetail, Device, DeviceCreate, DeviceMetrics, DeviceStatus,
@@ -8,6 +11,7 @@ import type {
   DhcpLease, DhcpPool, DhcpPoolCreate, DhcpPoolUpdate, DhcpReservation, DhcpReservationCreate,
 } from './types'
 import { deviceKind } from '../components/devices'
+import { sideBySide } from './mockDiff'
 
 const hour = 3_600_000
 const epoch = Date.now()
@@ -37,6 +41,7 @@ const devices: Device[] = [
   platform: 'cisco_ios',
   ssh_port: 22,
   created_at: iso(epoch - (30 - index) * 24 * hour),
+  has_credentials: index < 3,
 }))
 
 const statuses: DeviceStatus[] = devices.map(device => ({
@@ -234,6 +239,25 @@ export async function listDevices(): Promise<Device[]> {
   return copy([...devices].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
 }
 
+// Mock R1.3: addresses ending in .99 are unreachable; the password "wrong" is refused.
+export async function testConnection(form: ConnectionTestRequest): Promise<ConnectionTestResult> {
+  await delay()
+  const address = `${form.management_ip}:${form.ssh_port ?? 22}`
+  const reach = { stage: 'reachability' as const, ok: true, message: `${address} is reachable.` }
+  if (form.management_ip.trim().endsWith('.99')) {
+    const message = `Nothing answered on ${address}. Check the management IP and SSH port, and that the device is powered on with SSH enabled.`
+    return { ok: false, failed_stage: 'reachability', message, checks: [{ ...reach, ok: false, message }] }
+  }
+  if (!(form.username && form.password)) {
+    return { ok: true, failed_stage: null, message: `${address} is reachable. Login not tested: no username and password entered.`, checks: [reach] }
+  }
+  if (form.password === 'wrong') {
+    const message = 'The device refused the login. Check the username and password.'
+    return { ok: false, failed_stage: 'login', message, checks: [reach, { stage: 'login', ok: false, message }] }
+  }
+  return { ok: true, failed_stage: null, message: 'Reachable and the login succeeded.', checks: [reach, { stage: 'login', ok: true, message: `Logged in as ${form.username}.` }] }
+}
+
 export async function createDevice(payload: DeviceCreate): Promise<Device> {
   await delay()
   validateText(payload.name, 120, 'name')
@@ -248,6 +272,7 @@ export async function createDevice(payload: DeviceCreate): Promise<Device> {
     name: payload.name, management_ip: payload.management_ip,
     platform: payload.platform ?? 'cisco_ios', ssh_port: port,
     id: nextDeviceId++, created_at: iso(Date.now()),
+    has_credentials: Boolean(payload.username && payload.password),
   }
   devices.push(device)
   statuses.push({ device_id: device.id, state: 'up', last_poll_at: iso(Date.now()), consecutive_failures: 0 })
@@ -272,7 +297,7 @@ export async function updateDevice(deviceId: number, patch: Partial<DeviceCreate
   if (devices.some(other => other.id !== deviceId && other.name === updated.name)) {
     throw new Error('A device with that name already exists')
   }
-  Object.assign(device, updated)
+  Object.assign(device, updated, { has_credentials: device.has_credentials || Boolean(patch.password) })
   return copy(device)
 }
 
@@ -315,6 +340,13 @@ export async function listConfigVersions(deviceId: number): Promise<ConfigVersio
   await delay()
   requireDevice(deviceId)
   return (versions.get(deviceId) ?? []).map(summary).reverse()
+}
+
+export async function getConfigDiff(deviceId: number, from: number, to: number): Promise<ConfigDiff> {
+  const [left, right] = await Promise.all([getConfigVersion(deviceId, from), getConfigVersion(deviceId, to)])
+  const { configuration: leftText, ...fromVersion } = left
+  const { configuration: rightText, ...toVersion } = right
+  return { from_version: fromVersion, to_version: toVersion, ...sideBySide(leftText, rightText) }
 }
 
 export async function getConfigVersion(deviceId: number, version: number): Promise<ConfigVersionDetail> {

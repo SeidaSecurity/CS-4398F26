@@ -1,13 +1,33 @@
-export interface DeviceCreate {
+export interface DeviceBase {
   name: string
   management_ip: string
   platform?: string
   ssh_port?: number
 }
 
-export interface Device extends Required<DeviceCreate> {
+/** Credentials are write-only: sent on create/update, never returned (R1.4). */
+export interface DeviceCreate extends DeviceBase {
+  username?: string
+  password?: string
+  secret?: string
+}
+
+/** R1.3: test unsaved form values; credentials are used once and not stored. */
+export type ConnectionTestRequest = Omit<DeviceCreate, 'name'>
+
+export type ConnectionStage = 'reachability' | 'login' | 'enable'
+
+export interface ConnectionTestResult {
+  ok: boolean
+  failed_stage: ConnectionStage | null
+  message: string
+  checks: { stage: ConnectionStage; ok: boolean; message: string }[]
+}
+
+export interface Device extends Required<DeviceBase> {
   id: number
   created_at: string
+  has_credentials: boolean
 }
 
 export interface ConfigVersion {
@@ -21,6 +41,23 @@ export interface ConfigVersion {
 
 export interface ConfigVersionDetail extends ConfigVersion {
   configuration: string
+}
+
+export type DiffLine = { n: number; text: string }
+
+export type DiffRow = {
+  left?: DiffLine
+  right?: DiffLine
+  kind: 'same' | 'removed' | 'added' | 'changed'
+}
+
+/** R3.4: computed by the server; absent sides are omitted. */
+export interface ConfigDiff {
+  from_version: ConfigVersion
+  to_version: ConfigVersion
+  rows: DiffRow[]
+  added: number
+  removed: number
 }
 
 export interface ConfigTemplate {

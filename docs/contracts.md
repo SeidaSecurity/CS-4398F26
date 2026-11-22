@@ -13,7 +13,18 @@ These are implementation defaults, not team-approved shared contracts. Review th
 | `ssh_port` | integer | SSH port, default 22 |
 | `created_at` | UTC datetime | Record creation time |
 
-Credentials are deliberately outside the device table. The current lab adapter looks them up by device name in `NETMGR_DEVICE_CREDENTIALS_JSON`. A proper shared secrets manager/credential-encryption approach must be agreed before production use.
+Credentials (ADR-0008) are write-only: `POST`/`PATCH /api/v1/devices` accept `username`,
+`password` and optional `secret`; they are stored Fernet-encrypted in `device_credentials` with the key
+from `NETMGR_SECRET_KEY`, and responses expose only `has_credentials`. Blank or partial credentials →
+422; no key configured → 503 (nothing saved). On PATCH, omitting them keeps the stored ones, and
+updating only the password keeps the enable secret. Devices without stored credentials fall back to
+`NETMGR_DEVICE_CREDENTIALS_JSON` (ADR-0002, lab use).
+
+Connection test (R1.3): `POST /api/v1/devices/test-connection` takes unsaved form values
+(`management_ip`, `ssh_port`, `platform`, optional `username`/`password`/`secret`) and returns
+`{ok, failed_stage: "reachability"|"login"|"enable"|null, message, checks: [{stage, ok, message}]}`
+with HTTP 200 whether or not the test passed. Nothing is saved; credentials are used once and never
+echoed. Login is skipped when no username and password are given. Admin only; audited.
 
 ## Authentication (ADR-0005)
 
@@ -97,6 +108,11 @@ Credentials are deliberately outside the device table. The current lab adapter l
 - `POST /devices/{id}/config/retrieve` returns 502 with an operator-facing `detail` on device failure and writes a `configuration.retrieve` / `failed` audit record.
 - Configuration versions retain full captured text, monotonically numbered per device, with `source`, `operator` (the logged-in user who caused it, R3.3), and UTC creation time.
 - Configuration templates are stored in `config_templates` and exposed through `GET/POST /api/v1/configuration-templates`, `PATCH/DELETE /api/v1/configuration-templates/{template_id}`, and `POST /api/v1/configuration-templates/render`. Templates use literal `{{ variable_name }}` placeholders (ASCII letters/underscore first, then letters/digits/underscores); rendering requires a value for every distinct placeholder and rejects missing, extra, or malformed placeholders. Rendered text is previewed before the normal configuration push flow.
+- `GET /api/v1/devices/{device_id}/config/diff?from=<version>&to=<version>` (R3.4) returns
+  `{"from_version": ConfigVersionRead, "to_version": ConfigVersionRead, "rows": [{"kind":
+  "same|removed|added|changed", "left": {"n": 1, "text": "..."}, "right": {...}}], "added": 0,
+  "removed": 0}`; `left`/`right` are omitted when a row has no line on that side. 404 when the
+  device or either version is missing; 422 when either side exceeds 5,000 lines.
 - `POST /api/v1/devices/{device_id}/config/versions/{version}/restore` restores a saved version, first captures the current configuration as `pre_rollback`, captures the resulting running configuration as a new `rollback` version, and audits the operation. It returns one `ConfigPushResult` and uses 404 when the device or version is missing.
 - Logs expose `timestamp`, `received_at`, `source`, `facility`, `severity`, `body`, and `parsed`; raw input is retained in storage for unparsed-message troubleshooting.
 - Log severity follows syslog numeric severity 0 (emergency) through 7 (debug); facility uses the syslog numeric facility.
@@ -118,7 +134,7 @@ All endpoints below use GET. Shapes show example values; timestamps are UTC date
 | Endpoint | JSON response shape |
 |---|---|
 | `/api/v1/monitoring/status` | `[{"device_id":1,"state":"up","last_poll_at":"<UTC datetime>","consecutive_failures":0}]` (`state`: `up` or `down`) |
-| `/api/v1/monitoring/alerts` | `[{"id":1,"device_id":1,"message":"...","raised_at":"<UTC datetime>"}]` (unresolved alerts only) |
+| `/api/v1/monitoring/alerts` | `[{"id":1,"device_id":1,"message":"...","raised_at":"<UTC datetime>"}]` (unresolved alerts only; device-down alerts and CPU-threshold alerts, R2.5 — shape unchanged, the kind is recorded in `metric_alerts`) |
 | `/api/v1/monitoring/topology` | `[{"a":1,"b":2}]` (device IDs) |
 | `/api/v1/monitoring/devices/{device_id}/interfaces` | `[{"index":1,"name":"...","oper_status":"up","speed_mbps":1000.0}]` (`oper_status`: `up` or `down`; speed may be `null`) |
 | `/api/v1/monitoring/metrics` | `{"devices_up":[point],"cpu_avg":[point],"throughput_in_bps":[point],"throughput_out_bps":[point]}` |
