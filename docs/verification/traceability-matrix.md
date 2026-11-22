@@ -70,9 +70,9 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 | ID | Pri | Status | Implementation | Unit test | Acceptance | Gap / note |
 |---|---|---|---|---|---|---|
 | R6.1 DORA | E | ✅ | `app/dhcp/packet.py`, `allocator.py`, `server.py` (UDP, broadcast replies, bound to `DHCP_SERVER_IP`) | `test_dhcp_packet.py`, `test_dhcp_allocator.py`, `test_dhcp_server.py::test_r6_1_full_dora_over_real_udp` | AT-09 | Proven over localhost UDP; real-segment check (Windows broadcast spike) in DHCP increment 7 |
-| R6.2 Pools | E | 🟡 | `app/dhcp/pools.py` (rules), `app/dhcp/routes.py` (pools CRUD, audited) | `test_dhcp_pools.py::test_r6_2_*`, `test_dhcp_api.py::test_r6_2_*` (incl. delete with active leases, checkpoint B) | AT-09 | API done; Services screen DHCP tab pending (DHCP increment 6) |
-| R6.3 Reservations | E | 🟡 | `pools.create_reservation`, reservation routes; allocator honours them | `test_r6_3_*` (rules, API, allocator) | AT-09 | API done; screen pending (increment 6) |
-| R6.4 Lease display | E | 🟡 | `GET /api/v1/dhcp/leases` (active leases: MAC, IP, hostname, state, expiry), admin release | `test_r6_4_*`, `test_r6_6_release_via_api_frees_the_address_for_the_allocator` (checkpoint C) | AT-09 | API done; leases table on the Services screen pending (increment 6) |
+| R6.2 Pools | E | ✅ | `app/dhcp/pools.py`, `app/dhcp/routes.py`, Services → DHCP tab (`web/src/pages/ServicesDhcp.tsx`) | `test_dhcp_pools.py::test_r6_2_*`, `test_dhcp_api.py::test_r6_2_*` | AT-09 | Create/edit/delete in the UI; delete states how many active leases and reservations it drops |
+| R6.3 Reservations | E | ✅ | `pools.create_reservation`, reservation routes, DHCP tab; allocator honours them | `test_r6_3_*` (rules, API, allocator) | AT-09 | Add/delete in the UI with confirmation |
+| R6.4 Lease display | E | ✅ | `GET /api/v1/dhcp/leases`, DHCP tab leases table (MAC, IP, hostname, state, expiry; refreshes every 10 s), admin release | `test_r6_4_*`, `test_r6_6_release_via_api_frees_the_address_for_the_allocator` | AT-09 | Real-client lease on an isolated lab segment is DHCP increment 7 (deferred) |
 | R6.5 Lease persistence | E | ✅ | Leases stored in `dhcp_leases` (SQLite/PostgreSQL) | `test_r6_5_leases_survive_a_restart` (file DB, service stopped and reopened, same MAC → same IP) | AT-09 | — |
 | R6.6 Expiry/release | E | ✅ | `Allocator._release`, `Allocator.sweep`, background sweep thread in `DhcpService` | `test_r6_6_*` (release, 60 s hold, sweep 3599/3600 s, background sweep) | AT-09 | — |
 | R6.7 Exhaustion log | D | ✅ | `Allocator._log_exhaustion` → `LogRecord` (source `netmgr-dhcp`, severity 4) | `test_r6_7_exhausted_pool_sends_no_offer_and_logs_once_per_minute` | AT-09 | Rate-limited to one entry per pool per minute; visible on the Logs screen |
@@ -104,7 +104,7 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 | 5.3.1 One failing subsystem doesn't stop the others | ✅ | DNS and syslog log a bind failure and the app keeps running (`test_5_3_1_*`; the syslog case crashed startup before, proven fail-before) |
 | 5.3.2 ≥70% coverage, CI on every PR | 🟡 | 86% locally; CI workflow in `.github/workflows/ci.yml` (enable branch protection on `main` to finish) |
 | 5.3.3 Actionable error messages | 🟡 | Config retrieve/push/rollback fixed (P-002, `test_5_3_3_*`); other screens not yet reviewed |
-| 5.3.5 In-program help (config, DNS, DHCP screens) | 🟡 | DNS: every Services field has format help (`HELP` in `Services.tsx`); Push: template placeholder help; DHCP screen not built yet |
+| 5.3.5 In-program help (config, DNS, DHCP screens) | ✅ | Every field on the Services DNS and DHCP tabs has format help (`HELP` in `Services.tsx` / `ServicesDhcp.tsx`); Push has template placeholder help |
 | 5.3.4 Single Docker Compose deploy | 🟡 | Compose exists; web UI not included in it |
 
 ## Summary

@@ -204,3 +204,59 @@ export interface DnsRecordUpdate {
   value?: string
   ttl?: number | null
 }
+
+/** DHCP pools, reservations and leases (SRS 4.6; contracts.md "DHCP service"). */
+export interface DhcpPool {
+  id: number
+  name: string
+  subnet: string
+  range_start: string
+  range_end: string
+  gateway: string
+  dns_servers: string[]
+  domain: string
+  lease_seconds: number
+  reservation_count: number
+  active_lease_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface DhcpPoolCreate {
+  name: string
+  subnet: string
+  range_start: string
+  range_end: string
+  gateway: string
+  dns_servers: string[]
+  domain: string
+  lease_seconds: number
+}
+
+export type DhcpPoolUpdate = Partial<DhcpPoolCreate>
+
+export interface DhcpReservation {
+  id: number
+  pool_id: number
+  mac: string
+  ip: string
+  hostname: string | null
+  created_at: string
+}
+
+export interface DhcpReservationCreate {
+  mac: string
+  ip: string
+  hostname?: string | null
+}
+
+export interface DhcpLease {
+  id: number
+  pool_id: number
+  pool_name: string
+  mac: string
+  ip: string
+  hostname: string | null
+  state: 'offered' | 'bound'
+  expires_at: string
+}

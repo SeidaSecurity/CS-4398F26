@@ -5,6 +5,7 @@ import type {
   Interface, LogQuery, LogRecord, MetricPoint, NetworkMetrics, TimeWindow, TopologyLink,
   CurrentUser, UserAccount, UserCreate, UserUpdate,
   DnsRecord, DnsRecordCreate, DnsRecordUpdate, DnsZone, DnsZoneCreate,
+  DhcpLease, DhcpPool, DhcpPoolCreate, DhcpPoolUpdate, DhcpReservation, DhcpReservationCreate,
 } from './types'
 import { deviceKind } from '../components/devices'
 
@@ -786,4 +787,117 @@ export async function deleteDnsRecord(recordId: number): Promise<void> {
   if (index < 0) throw new Error('Record not found. Refresh the record list.')
   touchZone(requireZone(dnsRecords[index].zone_id))
   dnsRecords.splice(index, 1)
+}
+
+// --- DHCP (mock) ------------------------------------------------------------------------------
+// Light validation only: the real rules live on the server (app/dhcp/pools.py).
+
+type MockPool = Omit<DhcpPool, 'reservation_count' | 'active_lease_count'>
+const dhcpPools: MockPool[] = [
+  {
+    id: 1, name: 'lab-clients', subnet: '192.168.50.0/24', range_start: '192.168.50.100',
+    range_end: '192.168.50.199', gateway: '192.168.50.1', dns_servers: ['192.168.50.1'],
+    domain: 'lab.local', lease_seconds: 3600, created_at: iso(Date.now() - 86_400_000),
+    updated_at: iso(Date.now() - 3_600_000),
+  },
+]
+const dhcpReservations: DhcpReservation[] = [
+  { id: 1, pool_id: 1, mac: 'aa:bb:cc:dd:ee:07', ip: '192.168.50.10', hostname: 'printer', created_at: iso(Date.now() - 80_000_000) },
+]
+const dhcpLeases: DhcpLease[] = [
+  { id: 1, pool_id: 1, pool_name: 'lab-clients', mac: 'aa:bb:cc:dd:ee:01', ip: '192.168.50.100', hostname: 'alpine-1', state: 'bound', expires_at: iso(Date.now() + 3_000_000) },
+  { id: 2, pool_id: 1, pool_name: 'lab-clients', mac: 'aa:bb:cc:dd:ee:02', ip: '192.168.50.101', hostname: null, state: 'offered', expires_at: iso(Date.now() + 45_000) },
+]
+
+function requirePool(poolId: number): MockPool {
+  const pool = dhcpPools.find(candidate => candidate.id === poolId)
+  if (!pool) throw new Error('Pool not found. Refresh the pool list.')
+  return pool
+}
+
+function activeLeases(): DhcpLease[] {
+  return dhcpLeases.filter(lease => new Date(lease.expires_at).getTime() > Date.now())
+}
+
+function withPoolCounts(pool: MockPool): DhcpPool {
+  return {
+    ...pool,
+    reservation_count: dhcpReservations.filter(r => r.pool_id === pool.id).length,
+    active_lease_count: activeLeases().filter(l => l.pool_id === pool.id).length,
+  }
+}
+
+export async function listDhcpPools(): Promise<DhcpPool[]> {
+  await delay()
+  return copy([...dhcpPools].sort((a, b) => a.name.localeCompare(b.name)).map(withPoolCounts))
+}
+
+export async function createDhcpPool(payload: DhcpPoolCreate): Promise<DhcpPool> {
+  await delay()
+  if (dhcpPools.some(pool => pool.name.toLowerCase() === payload.name.toLowerCase())) {
+    throw new Error(`A pool with the name '${payload.name}' already exists.`)
+  }
+  if (payload.lease_seconds < 60 || payload.lease_seconds > 604800) throw new Error('Lease time must be 60-604800 seconds.')
+  const pool: MockPool = {
+    ...payload, id: Math.max(0, ...dhcpPools.map(p => p.id)) + 1,
+    created_at: iso(Date.now()), updated_at: iso(Date.now()),
+  }
+  dhcpPools.push(pool)
+  recordAudit(mockOperator(), 'dhcp.pool.create', 'succeeded', null, `Pool '${pool.name}'`)
+  return copy(withPoolCounts(pool))
+}
+
+export async function updateDhcpPool(poolId: number, patch: DhcpPoolUpdate): Promise<DhcpPool> {
+  await delay()
+  const pool = requirePool(poolId)
+  Object.assign(pool, patch, { updated_at: iso(Date.now()) })
+  return copy(withPoolCounts(pool))
+}
+
+export async function deleteDhcpPool(poolId: number): Promise<void> {
+  await delay()
+  const pool = requirePool(poolId)
+  dhcpPools.splice(dhcpPools.indexOf(pool), 1)
+  for (const list of [dhcpReservations, dhcpLeases] as { pool_id: number }[][]) {
+    for (let index = list.length - 1; index >= 0; index--) if (list[index].pool_id === poolId) list.splice(index, 1)
+  }
+}
+
+export async function listDhcpReservations(poolId: number): Promise<DhcpReservation[]> {
+  await delay()
+  requirePool(poolId)
+  return copy(dhcpReservations.filter(r => r.pool_id === poolId))
+}
+
+export async function createDhcpReservation(poolId: number, payload: DhcpReservationCreate): Promise<DhcpReservation> {
+  await delay()
+  requirePool(poolId)
+  const mac = payload.mac.trim().toLowerCase().replace(/-/g, ':')
+  if (!/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/.test(mac)) throw new Error(`MAC address '${payload.mac}' is invalid. Use a form like aa:bb:cc:dd:ee:ff.`)
+  if (dhcpReservations.some(r => r.pool_id === poolId && r.mac === mac)) throw new Error(`MAC ${mac} already has a reservation.`)
+  const reservation: DhcpReservation = {
+    id: Math.max(0, ...dhcpReservations.map(r => r.id)) + 1, pool_id: poolId, mac,
+    ip: payload.ip.trim(), hostname: payload.hostname || null, created_at: iso(Date.now()),
+  }
+  dhcpReservations.push(reservation)
+  return copy(reservation)
+}
+
+export async function deleteDhcpReservation(reservationId: number): Promise<void> {
+  await delay()
+  const index = dhcpReservations.findIndex(r => r.id === reservationId)
+  if (index < 0) throw new Error('Reservation not found. Refresh the list.')
+  dhcpReservations.splice(index, 1)
+}
+
+export async function listDhcpLeases(poolId?: number): Promise<DhcpLease[]> {
+  await delay()
+  return copy(activeLeases().filter(lease => poolId === undefined || lease.pool_id === poolId))
+}
+
+export async function releaseDhcpLease(leaseId: number): Promise<void> {
+  await delay()
+  const index = dhcpLeases.findIndex(l => l.id === leaseId)
+  if (index < 0) throw new Error('Lease not found or already expired. Refresh the lease list.')
+  dhcpLeases.splice(index, 1)
 }

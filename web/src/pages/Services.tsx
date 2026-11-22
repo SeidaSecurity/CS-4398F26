@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import type { FormEvent } from 'react'
 import { FloppyDisk, Globe, ListBullets, PencilSimple, Plus, Trash, X } from '@phosphor-icons/react'
 import { api, useApi } from '../api'
@@ -7,6 +8,7 @@ import { useAuth } from '../auth'
 import { RightPanel } from '../components/Layout'
 import { Button, ConfirmDialog, DataTable, FilterBar, IconButton, PanelSection, Pill, Select, StatRow, TextInput } from '../components/ui'
 import { relativeTime } from '../lib/format'
+import DhcpTab from './ServicesDhcp'
 import styles from './Services.module.css'
 
 /** In-program help for every DNS field (SRS 5.3.5). Mirrors the server rules in app/dns/zones.py. */
@@ -31,8 +33,33 @@ function parseTtl(raw: string): number | null {
 
 type Pending = { title: string; body: string; run: () => Promise<unknown>; success: string }
 
-/** Services screen, DNS section (SRS 3.1.6, R5.2). DHCP will be added here later. */
+const TABS = [
+  { id: 'dns', label: 'DNS' },
+  { id: 'dhcp', label: 'DHCP' },
+] as const
+
+/** Services screen (SRS 3.1.6): DNS and DHCP tabs. ?tab=dhcp opens DHCP directly. */
 export default function Services() {
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') === 'dhcp' ? 'dhcp' : 'dns'
+  return (
+    <>
+      <div className={styles.tabs} role="tablist" aria-label="Services">
+        {TABS.map(item => (
+          <button key={item.id} type="button" role="tab" aria-selected={tab === item.id}
+            className={tab === item.id ? `${styles.tab} ${styles.tabActive}` : styles.tab}
+            onClick={() => setParams(item.id === 'dns' ? {} : { tab: item.id })}>
+            {item.label}
+          </button>
+        ))}
+      </div>
+      {tab === 'dhcp' ? <DhcpTab /> : <DnsTab />}
+    </>
+  )
+}
+
+/** DNS tab (R5.2). */
+function DnsTab() {
   const { isAdmin } = useAuth()
   const zonesQuery = useApi(() => api.listDnsZones(), [])
   const zones = zonesQuery.data ?? []
