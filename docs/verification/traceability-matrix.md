@@ -25,9 +25,9 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 |---|---|---|---|---|---|---|
 | R2.1 Recurring poll | E | ✅ | `main.py` `poll_interval_seconds`, `_run_monitoring`, `poller.poll_all` | `test_r2_1_poll_interval_defaults_to_60_seconds` | AT-02 | Default fixed to 60 s (P-002) |
 | R2.2 Reachability state | E | ✅ | `poller.poll_device`, `GET /monitoring/status` | `test_poller_failure_and_recovery` | AT-02 | — |
-| R2.3 Metric collection | E | 🟡 | `app/probes.py` | — (probes 27% covered) | AT-02 | Memory not collected; no unit tests for SNMP parsing/counter math |
+| R2.3 Metric collection | E | ✅ | `app/probes.py`: ICMP RTT; SNMP CPU (HOST-RESOURCES, else CISCO-PROCESS-MIB 5-min), memory (CISCO-MEMORY-POOL-MIB), interfaces, throughput from 64-bit counters | `test_snmp_probe.py::test_r2_3_*` (fake fetch: Cisco CPU/memory, preference, missing tables, rates, counter reset, fallbacks) | AT-02 | Lab: `scripts/check_snmp.py` PASS on ios-lab-1..3 (2026-11-21: CPU 0.0%, memory ~31%, 5 interfaces) |
 | R2.4 Dashboard | E | ✅ | `web/src/pages/Network.tsx` | — | AT-02 | Check "alerting devices sorted to top" (3.1.2) |
-| R2.5 Alerting | E | ✅ | `poller.poll_device` (two-failure down alert), `poller._check_cpu` + `MetricAlert` (CPU > `CPU_ALERT_PERCENT`, default 90) | `test_poller_failure_and_recovery`, `test_cpu_alerts.py::test_r2_5_*` (89.9/90/90.1 boundary; checkpoint F: down and CPU alerts independent) | AT-03 | One CPU alert per episode; resolves when CPU ≤ threshold; no reading leaves it unchanged |
+| R2.5 Alerting | E | ✅ | `poller.poll_device` (two-failure down alert), `poller._check_cpu` + `MetricAlert` (CPU ≥ `CPU_ALERT_PERCENT`, default 90) | `test_poller_failure_and_recovery`, `test_cpu_alerts.py::test_r2_5_*` (89.9/90/90.1 boundary; checkpoint F: down and CPU alerts independent) | AT-03 | One CPU alert per episode; resolves when CPU < threshold; no reading leaves it unchanged |
 | R2.6 Historical graphs | D | ✅ | `monitoring.py` metrics, `TimeSeries.tsx` | `test_monitoring_response_shapes_after_poll`, `test_invalid_metrics_window` | AT-02 | — |
 | R2.7 Metric retention | D | ❌ | — | — | — | — |
 
@@ -102,7 +102,7 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 | NFR-7 HTTPS | ❌ | Plain HTTP on :8000 |
 | NFR-8 Audit not modifiable via UI | ✅ | Only `GET /api/v1/audit` exists; no update/delete route |
 | 5.3.1 One failing subsystem doesn't stop the others | ✅ | DNS and syslog log a bind failure and the app keeps running (`test_5_3_1_*`; the syslog case crashed startup before, proven fail-before) |
-| 5.3.2 ≥70% coverage, CI on every PR | 🟡 | 86% locally; CI workflow in `.github/workflows/ci.yml` (enable branch protection on `main` to finish) |
+| 5.3.2 ≥70% coverage, CI on every PR | 🟡 | 95% locally (408 tests); CI workflow in `.github/workflows/ci.yml` (enable branch protection on `main` to finish) |
 | 5.3.3 Actionable error messages | 🟡 | Config retrieve/push/rollback fixed (P-002, `test_5_3_3_*`); other screens not yet reviewed |
 | 5.3.5 In-program help (config, DNS, DHCP screens) | ✅ | Every field on the Services DNS and DHCP tabs has format help (`HELP` in `Services.tsx` / `ServicesDhcp.tsx`); Push has template placeholder help |
 | 5.3.4 Single Docker Compose deploy | 🟡 | Compose exists; web UI not included in it |

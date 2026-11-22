@@ -13,6 +13,7 @@ commit history and chat exports, and mark those entries "reconstructed".
 | P-005 | 2026-11-19 | Justin | Claude Code (Opus 5.5) | R5.1–R5.3, NFR-3, SRS 5.3.1, 5.3.5 | branch `track-c/8-dns-authoritative` |
 | P-006 | 2026-11-20 | Justin | Claude Code (Opus 5.5) | R6.1–R6.3, R6.5–R6.7; SRS 5.3.1 | branch `track-c/9-dhcp` |
 | P-007 | 2026-11-21 | Justin | Claude Code (Opus 5.5) | R6.2–R6.4, SRS 5.3.5; design docs | branch `track-c/10-dhcp-api-ui` |
+| P-008 | 2026-11-21 | Justin | Claude Code (Opus 5.5) | R1.1, R1.3, R1.4, R2.3, R2.5, R3.4, NFR-6 | branch `track-a/11-baseline-gaps` |
 
 ---
 
@@ -531,6 +532,111 @@ in-program help ✅.
 **Human verification:** _(fill in: on the lab, Services → DHCP: create the pool, add the
 reservation, see the leases table (and a lease if DHCP is running); try the delete-pool
 confirmation text; check the new class diagram and §2.9–2.10 render on GitHub)_
+
+---
+
+## P-008 — MoT session: close the remaining Essential gaps (credentials, connection test, CPU alerts, diff, SNMP)
+
+**Context given (Prompt 0):** `CLAUDE.md`, SRS §4.1 (R1.1–R1.4, 4.1.4), §4.2 (R2.3, R2.5), §4.3
+(R3.4), §5.2 (NFR-6), §6.2, `docs/contracts.md`, ADR-0002, `app/configuration.py`, `app/main.py`,
+`app/poller.py`, `app/probes.py`, `Devices.tsx`, `History.tsx`, `web/src/lib/diff.ts`, the RTM.
+
+**Prompt** (drafted with the agent, sent verbatim):
+> Context: CLAUDE.md, SRS §4.1 (R1.1-R1.4, stimulus/response 4.1.4), §4.2 (R2.3, R2.5), §4.3 (R3.4),
+> §5.2 (NFR-6), §6.2, docs/contracts.md, docs/decisions/0002-device-credentials-from-environment.md,
+> app/configuration.py (EnvironmentCredentials, NetmikoConnector), app/main.py (device routes,
+> config versions), app/poller.py, app/probes.py, web/src/pages/Devices.tsx, web/src/pages/History.tsx,
+> web/src/lib/diff.ts, docs/verification/traceability-matrix.md.
+> Goal: close the remaining Essential gaps so every Essential requirement is done.
+>
+> Decisions already made (do not re-decide):
+> - Credentials (R1.1, R1.4, NFR-6): new table device_credentials; password/secret encrypted with
+>   Fernet (cryptography) using NETMGR_SECRET_KEY from the environment (never stored in the DB).
+>   Device create/update accept write-only username/password/secret; responses only say
+>   has_credentials. Lookup order: stored credentials first, then the existing
+>   NETMGR_DEVICE_CREDENTIALS_JSON as a fallback so my lab keeps working. Supersedes ADR-0002.
+> - Connection test (R1.3): POST /api/v1/devices/test-connection with the unsaved form values; TCP
+>   reach to the SSH port, then an SSH login when credentials are given; short timeouts. The Add
+>   device form runs it before saving and, on failure, shows the reason with "Save anyway" and
+>   "Fix" (SRS 4.1.4).
+> - Threshold alerts (R2.5): CPU_ALERT_PERCENT (default 90); raise one alert when a poll's CPU is at
+>   or above it, resolve it when CPU drops below; independent of the down/up alert.
+> - Version diff (R3.4): GET /api/v1/devices/{id}/config/diff?from=&to= using difflib, returning the
+>   same shape History.tsx uses today (rows, added, removed); History calls it and web/src/lib/diff.ts
+>   is removed.
+> - New tables only, no column changes to existing tables (no migrations; my lab DB must keep working).
+>
+> Increments, one capability each:
+> 1. Encrypted credential store + key handling (R1.4, NFR-6).
+> 2. Credentials in the device API and Add/Edit form; connector uses stored credentials (R1.1).
+> 3. Connection test endpoint + form flow (R1.3).
+> 4. CPU threshold alerts in the poller (R2.5).
+> 5. Back-end config diff + History switched to it (R3.4).
+> 6. Optional, only if time remains: Cisco CPU and memory via SNMP (R2.3) using the Cisco OIDs,
+>    verified against my lab routers with a probe that reads SNMP_COMMUNITY from .env.lab at
+>    runtime without printing it.
+>
+> Critical checkpoints to address in the plan:
+> A. Credentials never leave the server: a test walks every device-related response (list, create,
+>    update, test-connection, errors, audit) and proves no password/secret/ciphertext appears.
+> B. At rest: the DB holds only ciphertext; a wrong or missing key gives a clear error, not a crash
+>    or a plaintext fallback.
+> C. My lab keeps working: devices without stored credentials still use the env JSON fallback.
+> D. The connection test cannot hang the UI (bounded timeouts) and its error messages never echo
+>    the password.
+> E. Diff parity: the back-end output matches the old front-end function on the same inputs
+>    (capture fixtures from diff.ts behaviour before deleting it).
+> F. Alert interplay: a CPU alert and a down alert can coexist; recovery from "down" must not
+>    silently resolve a still-active CPU alert (the current poller resolves all open alerts on up).
+>
+> Before coding: show the baseline and the plan, with how each checkpoint is tested. Wait for my OK.
+> Constraints: tests named test_r1_N_ / test_r2_N_ / test_r3_N_...; tests fail before and pass after;
+> update the RTM, contracts.md and a new ADR for credentials; don't commit; flag good commit points
+> and when you need me on the lab; never read .env.lab; add prompt-log entry P-008 when finished.
+> Done when: ruff, mypy, pytest (coverage >= 70%) and npm run build pass; every Essential row in the
+> RTM is ✅ (or R2.3 explicitly deferred); on the lab I can add a device with credentials, see the
+> connection test pass, and push a config using the stored credentials.
+
+**Plan review:** baseline 301 tests / 94% / ruff 0 / mypy 0. The agent raised two findings that
+changed the decisions:
+1. *Checkpoint E vs. difflib:* `diff.ts` is a custom LCS that pairs deletions/additions into
+   "changed" rows; `difflib` can produce different rows and counts, so exact parity was impossible.
+   **Chosen: Option 1** — port the same algorithm line for line (still a back-end diff, SRS 6.2).
+2. *Poller bug worse than stated:* a down alert was raised only when the device had **no** open
+   alerts, so an open CPU alert would have suppressed it. **Chosen:** new `metric_alerts` table
+   marking metric alerts (no column changes).
+
+Design points 3–6 (503 on a missing key, no plaintext fallback; PATCH keeps/replaces credentials;
+connection test 3 s TCP + 5 s SSH stages, admin-only; fixtures captured by running the real
+`diff.ts` under Node, 5,000-line cap) approved as written: "Option 1 , ok to proceed. metric table
+confirmed. points 3-6 confirmed".
+
+**Performance tracking matrix** (🟢 all pass, no regression)
+
+| Inc | Tests | Cov | ruff | mypy | tsc / build | Zone | Notes |
+|---|---|---|---|---|---|---|---|
+| 0 | 301 / 301 | 94% | 0 | 0 | ✅ | baseline | Route-walk minimum 46 |
+| 1 | 312 / 312 | 94% | 0 | 0 | — | 🟢 | `app/credentials.py` (Fernet, key from `NETMGR_SECRET_KEY`), `device_credentials` table. **B:** DB holds only ciphertext; wrong/missing key → clear error, never plaintext. 11 new tests failed first; module 100% covered |
+| 2 | 320 / 320 | 94% | long lines → 0 | 0 | ✅ / ✅ | 🟢 | Write-only `username`/`password`/`secret`, `has_credentials`; form fields; connector = stored then env JSON. **A:** walk of create/update/409/404/audit and every device GET finds no password, secret or ciphertext. **C:** env fallback still works. ADR-0008 supersedes ADR-0002. 8 new tests failed first |
+| 3 | 334 / 334 | 94% | 3 → 0 | 0 | ✅ / ✅ | 🟢 | `POST /devices/test-connection` (TCP 3 s → SSH login/enable 5 s); "Test and add" with Fix / Save anyway. **D:** fixed-template messages name the stage, never echo the password; nothing saved; viewer 403; audited. 14 tests (13 faked, 1 real loopback TCP). Real SSH stage left to the lab |
+| 4 | 341 / 341 | 94% | 0 | 0 | — | 🟢 | CPU alerts + `metric_alerts`. **F:** down alert raised while a CPU alert is open; recovery leaves the CPU alert open. 9 new tests. *Corrected during P-008 write-up:* first implemented as "> threshold" (from the improvement plan); the prompt's decision was "at or above / resolve below" — fixed, boundary tests now 89.9 → none, 90 → alert, 90.1 → alert |
+| 5 | 401 / 401 | 94% | 1 → 0 | 0 | ✅ / ✅ | 🟢 | `app/config_diff.py` + `GET /devices/{id}/config/diff?from=&to=`; History renders server rows. **E:** 52 fixtures captured from the real `diff.ts` under Node 26 (12 hand-picked + 40 seeded random); Python output equal on all 52. Worst case at the 5,000-line cap ≈ 3.5 s. Route minimum → 48. Deviation: `diff.ts` moved to `web/src/api/mockDiff.ts` (mock mode only) instead of deleted |
+| 6 | 408 / 408 | 95% | 0 | 0 | — | 🟢 | Cisco CPU (CISCO-PROCESS-MIB 5-min) fallback and memory (CISCO-MEMORY-POOL-MIB); optional vendor walks. 7 tests (1 new behaviour failed first, 6 characterisation tests of untested existing parsing); `probes.py` 27% → 67%. **Lab:** `scripts/check_snmp.py` PASS on ios-lab-1..3 (CPU 0.0%, memory ≈31%, 5 interfaces); community read at runtime, never printed |
+
+**Requirements closed:** R1.1, R1.3, R1.4, R2.3, R2.5, R3.4, NFR-6 ✅ — every Essential functional
+requirement in the RTM is now ✅.
+
+**Issues found / corrections:** the R2.5 comparison mismatch above (caught by the agent while
+re-reading the verbatim prompt for this entry, before any commit of the fix); the stale 86%
+coverage note in the RTM corrected to 95%.
+
+**Not verified in this session:** the real SSH login stage of the connection test and a push with
+stored credentials (needs the lab, below); a CPU alert on real hardware (the lab routers idle at 0%).
+
+**Human verification:** _(fill in: put `NETMGR_SECRET_KEY` in `.env.lab`, restart; Devices → Add a
+router with credentials → connection test passes and it saves showing "Stored (encrypted)"; wrong
+password → fails at "login", Fix; stopped ios-lab-4 → fails at "reachability", Save anyway; push a
+config to the device using the stored credentials; History diff unchanged; Monitoring shows memory)_
 
 ---
 

@@ -45,7 +45,7 @@ class Probe(Protocol):
 
 
 def cpu_alert_threshold() -> float:
-    """CPU_ALERT_PERCENT (0 < value <= 100), else the default 90 (R2.5: "CPU > 90%")."""
+    """CPU_ALERT_PERCENT (0 < value <= 100), else the default 90 (R2.5)."""
     raw = os.getenv("CPU_ALERT_PERCENT")
     if raw is None:
         return DEFAULT_CPU_ALERT_PERCENT
@@ -75,18 +75,18 @@ def _open_alerts(session: Session, device_id: int) -> list[tuple[Alert, MetricAl
 def _check_cpu(
     session: Session, device: Device, cpu_pct: float, threshold: float, now: datetime
 ) -> None:
-    """Raise one CPU alert while CPU > threshold; resolve it once CPU <= threshold."""
+    """Raise one CPU alert at CPU >= threshold; resolve it once CPU drops below (P-008)."""
     open_cpu = [a for a, m in _open_alerts(session, device.id) if m and m.metric == "cpu"]
-    if cpu_pct > threshold and not open_cpu:
+    if cpu_pct >= threshold and not open_cpu:
         alert = Alert(
             device_id=device.id,
-            message=f"{device.name} CPU at {cpu_pct:.1f}% exceeds the {threshold:g}% threshold",
+            message=f"{device.name} CPU at {cpu_pct:.1f}% (alert threshold {threshold:g}%)",
             raised_at=now,
         )
         session.add(alert)
         session.flush()
         session.add(MetricAlert(alert_id=alert.id, metric="cpu", threshold=threshold))
-    elif cpu_pct <= threshold:
+    elif cpu_pct < threshold:
         for alert in open_cpu:
             alert.resolved_at = now
 

@@ -1,4 +1,6 @@
-"""CPU threshold alerts (R2.5, second clause: "CPU > 90%"). Probes are fakes (SRS 8.3).
+"""CPU threshold alerts (R2.5). Probes are fakes (SRS 8.3).
+
+Rule (P-008 decision): raise at CPU >= CPU_ALERT_PERCENT, resolve when CPU drops below it.
 
 Boundary values 89.9 / 90 / 90.1 (vv-plan). Checkpoint F: a CPU alert and the device-down alert
 are independent - an open CPU alert neither suppresses a down alert nor is resolved by recovery.
@@ -51,7 +53,7 @@ def _open(db, metric=None):
     return [a for a in alerts if marks.get(a.id) == metric]
 
 
-@pytest.mark.parametrize(("cpu", "alerts"), [(89.9, 0), (90.0, 0), (90.1, 1)])
+@pytest.mark.parametrize(("cpu", "alerts"), [(89.9, 0), (90.0, 1), (90.1, 1)])
 def test_r2_5_cpu_threshold_boundary(db, cpu, alerts):
     _poll(db, Clock(), cpu_pct=cpu)
     assert len(_open(db, "cpu")) == alerts
@@ -66,7 +68,9 @@ def test_r2_5_cpu_alert_raised_once_and_resolved_when_back_under(db):
     assert "95.0%" in open_cpu[0].message and "90%" in open_cpu[0].message
     mark = db.get(MetricAlert, open_cpu[0].id)
     assert mark.threshold == 90
-    _poll(db, clock, cpu_pct=90)  # at the threshold is not "over"
+    _poll(db, clock, cpu_pct=90)  # at the threshold: still alerting
+    assert len(_open(db, "cpu")) == 1
+    _poll(db, clock, cpu_pct=89.9)  # below: resolved
     assert _open(db, "cpu") == []
 
 
