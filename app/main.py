@@ -18,6 +18,7 @@ from app.auth import (
     enforce_access,
 )
 from app.auth_routes import router as auth_router
+from app.config_diff import DiffTooLargeError, side_by_side
 from app.config_service import ConfigurationService
 from app.config_templates import TemplateRenderError, render_template
 from app.configuration import DeviceError, NetmikoConnector, record_audit_event
@@ -39,6 +40,7 @@ from app.poller import poll_all
 from app.probes import combined_probe
 from app.schemas import (
     AuditRecordRead,
+    ConfigDiffRead,
     ConfigPushRequest,
     ConfigPushResult,
     ConfigTemplateCreate,
@@ -362,6 +364,40 @@ def get_configuration_versions(device_id: int, session: Session = Depends(get_se
         .order_by(ConfigVersion.version.desc())
     )
     return list(session.scalars(statement))
+
+
+@app.get(
+    "/api/v1/devices/{device_id}/config/diff",
+    response_model=ConfigDiffRead,
+    response_model_exclude_none=True,
+)
+def get_configuration_diff(
+    device_id: int,
+    from_version: int = Query(alias="from", ge=1),
+    to_version: int = Query(alias="to", ge=1),
+    session: Session = Depends(get_session),
+):
+    """R3.4: diff two stored versions on the server (sync, so it runs in the thread pool)."""
+    if session.get(Device, device_id) is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+    records = {}
+    for number in (from_version, to_version):
+        record = session.scalar(
+            select(ConfigVersion).where(
+                ConfigVersion.device_id == device_id, ConfigVersion.version == number
+            )
+        )
+        if record is None:
+            raise HTTPException(
+                status_code=404, detail=f"Configuration version {number} not found"
+            )
+        records[number] = record
+    left, right = records[from_version], records[to_version]
+    try:
+        diff = side_by_side(left.configuration, right.configuration)
+    except DiffTooLargeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"from_version": left, "to_version": right, **diff}
 
 
 @app.get(

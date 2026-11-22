@@ -1,4 +1,5 @@
 import type {
+  ConfigDiff,
   ConnectionTestRequest,
   ConnectionTestResult,
   Alert, AuditRecord, ConfigPushRequest, ConfigPushResult, ConfigVersion,
@@ -61,6 +62,10 @@ export function retrieveConfig(deviceId: number): Promise<ConfigVersion> {
 
 export function listConfigVersions(deviceId: number): Promise<ConfigVersion[]> {
   return request(`/devices/${deviceId}/config/versions`)
+}
+
+export function getConfigDiff(deviceId: number, from: number, to: number): Promise<ConfigDiff> {
+  return request(`/devices/${deviceId}/config/diff?from=${from}&to=${to}`)
 }
 
 export function getConfigVersion(deviceId: number, version: number): Promise<ConfigVersionDetail> {

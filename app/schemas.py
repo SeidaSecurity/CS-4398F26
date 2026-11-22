@@ -151,6 +151,27 @@ class AuditRecordRead(BaseModel):
     detail: str
 
 
+class DiffLine(BaseModel):
+    n: int
+    text: str
+
+
+class DiffRow(BaseModel):
+    kind: Literal["same", "removed", "added", "changed"]
+    left: DiffLine | None = None
+    right: DiffLine | None = None
+
+
+class ConfigDiffRead(BaseModel):
+    """R3.4: side-by-side diff of two stored versions (absent sides are omitted)."""
+
+    from_version: ConfigVersionRead
+    to_version: ConfigVersionRead
+    rows: list[DiffRow]
+    added: int
+    removed: int
+
+
 class ConnectionTestRequest(BaseModel):
     """Unsaved Add-device form values (R1.3); credentials are used once and never stored."""
 

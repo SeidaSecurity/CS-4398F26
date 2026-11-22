@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ArrowCounterClockwise, ArrowRight, ArrowsClockwise, Check, Clock, ClockCounterClockwise, DownloadSimple, HardDrives } from '@phosphor-icons/react'
 import { api, useApi } from '../api'
@@ -6,7 +6,6 @@ import type { ConfigPushResult, ConfigVersion } from '../api'
 import { useAuth } from '../auth'
 import { RightPanel } from '../components/Layout'
 import { ConfirmDialog, FilterBar, IconButton, PanelSection, Pill, SectionHeader, Select } from '../components/ui'
-import { sideBySide } from '../lib/diff'
 import { formatTime, relativeTime } from '../lib/format'
 import styles from './History.module.css'
 
@@ -57,15 +56,13 @@ export default function History() {
 
   const configQuery = useApi(async () => {
     if (deviceId === undefined || compare === undefined || base === undefined) return null
-    const [left, right] = await Promise.all([
-      api.getConfigVersion(deviceId, base),
-      base === compare ? Promise.resolve(null) : api.getConfigVersion(deviceId, compare),
-    ])
-    return { deviceId, base, compare, left, right: right ?? left }
+    // R3.4: the server computes the diff; the View only renders it.
+    const diff = await api.getConfigDiff(deviceId, base, compare)
+    return { deviceId, base, compare, diff, left: diff.from_version, right: diff.to_version }
   }, [deviceId, base, compare])
   const config = configQuery.data && configQuery.data.deviceId === deviceId
     && configQuery.data.base === base && configQuery.data.compare === compare ? configQuery.data : null
-  const diff = useMemo(() => sideBySide(config?.left.configuration ?? '', config?.right.configuration ?? ''), [config])
+  const diff = config?.diff ?? { rows: [], added: 0, removed: 0 }
   const halfWidth = diff.rows.reduce((width, row) => Math.max(width,
     64 + 7 * (row.left?.text.length ?? 0), 64 + 7 * (row.right?.text.length ?? 0)), 160)
   const error = (retrieveError && retrieveError.deviceId === deviceId ? retrieveError.message : null)

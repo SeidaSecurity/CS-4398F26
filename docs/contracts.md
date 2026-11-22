@@ -108,6 +108,11 @@ echoed. Login is skipped when no username and password are given. Admin only; au
 - `POST /devices/{id}/config/retrieve` returns 502 with an operator-facing `detail` on device failure and writes a `configuration.retrieve` / `failed` audit record.
 - Configuration versions retain full captured text, monotonically numbered per device, with `source`, `operator` (the logged-in user who caused it, R3.3), and UTC creation time.
 - Configuration templates are stored in `config_templates` and exposed through `GET/POST /api/v1/configuration-templates`, `PATCH/DELETE /api/v1/configuration-templates/{template_id}`, and `POST /api/v1/configuration-templates/render`. Templates use literal `{{ variable_name }}` placeholders (ASCII letters/underscore first, then letters/digits/underscores); rendering requires a value for every distinct placeholder and rejects missing, extra, or malformed placeholders. Rendered text is previewed before the normal configuration push flow.
+- `GET /api/v1/devices/{device_id}/config/diff?from=<version>&to=<version>` (R3.4) returns
+  `{"from_version": ConfigVersionRead, "to_version": ConfigVersionRead, "rows": [{"kind":
+  "same|removed|added|changed", "left": {"n": 1, "text": "..."}, "right": {...}}], "added": 0,
+  "removed": 0}`; `left`/`right` are omitted when a row has no line on that side. 404 when the
+  device or either version is missing; 422 when either side exceeds 5,000 lines.
 - `POST /api/v1/devices/{device_id}/config/versions/{version}/restore` restores a saved version, first captures the current configuration as `pre_rollback`, captures the resulting running configuration as a new `rollback` version, and audits the operation. It returns one `ConfigPushResult` and uses 404 when the device or version is missing.
 - Logs expose `timestamp`, `received_at`, `source`, `facility`, `severity`, `body`, and `parsed`; raw input is retained in storage for unparsed-message troubleshooting.
 - Log severity follows syslog numeric severity 0 (emergency) through 7 (debug); facility uses the syslog numeric facility.

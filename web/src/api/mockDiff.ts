@@ -1,10 +1,6 @@
-export type DiffLine = { n: number; text: string }
-
-export type DiffRow = {
-  left?: DiffLine
-  right?: DiffLine
-  kind: 'same' | 'removed' | 'added' | 'changed'
-}
+// Mock mode only: stands in for the server's diff (app/config_diff.py, R3.4), which is a
+// line-for-line port of this function checked against fixtures captured from it.
+import type { DiffLine, DiffRow } from './types'
 
 export function sideBySide(a: string, b: string): { rows: DiffRow[]; added: number; removed: number } {
   const left = a === '' ? [] : a.split(/\r?\n/)

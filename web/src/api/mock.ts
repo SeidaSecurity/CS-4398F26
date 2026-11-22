@@ -1,4 +1,5 @@
 import type {
+  ConfigDiff,
   ConnectionTestRequest,
   ConnectionTestResult,
   Alert, AuditRecord, ConfigPushRequest, ConfigPushResult, ConfigVersion,
@@ -10,6 +11,7 @@ import type {
   DhcpLease, DhcpPool, DhcpPoolCreate, DhcpPoolUpdate, DhcpReservation, DhcpReservationCreate,
 } from './types'
 import { deviceKind } from '../components/devices'
+import { sideBySide } from './mockDiff'
 
 const hour = 3_600_000
 const epoch = Date.now()
@@ -338,6 +340,13 @@ export async function listConfigVersions(deviceId: number): Promise<ConfigVersio
   await delay()
   requireDevice(deviceId)
   return (versions.get(deviceId) ?? []).map(summary).reverse()
+}
+
+export async function getConfigDiff(deviceId: number, from: number, to: number): Promise<ConfigDiff> {
+  const [left, right] = await Promise.all([getConfigVersion(deviceId, from), getConfigVersion(deviceId, to)])
+  const { configuration: leftText, ...fromVersion } = left
+  const { configuration: rightText, ...toVersion } = right
+  return { from_version: fromVersion, to_version: toVersion, ...sideBySide(leftText, rightText) }
 }
 
 export async function getConfigVersion(deviceId: number, version: number): Promise<ConfigVersionDetail> {

@@ -43,6 +43,23 @@ export interface ConfigVersionDetail extends ConfigVersion {
   configuration: string
 }
 
+export type DiffLine = { n: number; text: string }
+
+export type DiffRow = {
+  left?: DiffLine
+  right?: DiffLine
+  kind: 'same' | 'removed' | 'added' | 'changed'
+}
+
+/** R3.4: computed by the server; absent sides are omitted. */
+export interface ConfigDiff {
+  from_version: ConfigVersion
+  to_version: ConfigVersion
+  rows: DiffRow[]
+  added: number
+  removed: number
+}
+
 export interface ConfigTemplate {
   id: number
   name: string
