@@ -129,7 +129,7 @@ All endpoints below use GET. Shapes show example values; timestamps are UTC date
 | Endpoint | JSON response shape |
 |---|---|
 | `/api/v1/monitoring/status` | `[{"device_id":1,"state":"up","last_poll_at":"<UTC datetime>","consecutive_failures":0}]` (`state`: `up` or `down`) |
-| `/api/v1/monitoring/alerts` | `[{"id":1,"device_id":1,"message":"...","raised_at":"<UTC datetime>"}]` (unresolved alerts only) |
+| `/api/v1/monitoring/alerts` | `[{"id":1,"device_id":1,"message":"...","raised_at":"<UTC datetime>"}]` (unresolved alerts only; device-down alerts and CPU-threshold alerts, R2.5 — shape unchanged, the kind is recorded in `metric_alerts`) |
 | `/api/v1/monitoring/topology` | `[{"a":1,"b":2}]` (device IDs) |
 | `/api/v1/monitoring/devices/{device_id}/interfaces` | `[{"index":1,"name":"...","oper_status":"up","speed_mbps":1000.0}]` (`oper_status`: `up` or `down`; speed may be `null`) |
 | `/api/v1/monitoring/metrics` | `{"devices_up":[point],"cpu_avg":[point],"throughput_in_bps":[point],"throughput_out_bps":[point]}` |

@@ -105,6 +105,22 @@ class Alert(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class MetricAlert(Base):
+    """Marks an alert as a metric-threshold alert (R2.5). A new table, so `alerts` is unchanged.
+
+    Alerts without a row here are device-down alerts; the two kinds are raised and resolved
+    independently (checkpoint F).
+    """
+
+    __tablename__ = "metric_alerts"
+
+    alert_id: Mapped[int] = mapped_column(
+        ForeignKey("alerts.id", ondelete="CASCADE"), primary_key=True
+    )
+    metric: Mapped[str] = mapped_column(String(40))
+    threshold: Mapped[float] = mapped_column(Float)
+
+
 class InterfaceStatus(Base):
     __tablename__ = "interface_statuses"
     __table_args__ = (CheckConstraint("oper_status IN ('up', 'down')"),)

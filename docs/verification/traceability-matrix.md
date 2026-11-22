@@ -27,7 +27,7 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 | R2.2 Reachability state | E | ✅ | `poller.poll_device`, `GET /monitoring/status` | `test_poller_failure_and_recovery` | AT-02 | — |
 | R2.3 Metric collection | E | 🟡 | `app/probes.py` | — (probes 27% covered) | AT-02 | Memory not collected; no unit tests for SNMP parsing/counter math |
 | R2.4 Dashboard | E | ✅ | `web/src/pages/Network.tsx` | — | AT-02 | Check "alerting devices sorted to top" (3.1.2) |
-| R2.5 Alerting | E | 🟡 | `poller.poll_device` | `test_poller_failure_and_recovery` | AT-03 | Two-failure alert ✔; **metric-threshold alerts missing** |
+| R2.5 Alerting | E | ✅ | `poller.poll_device` (two-failure down alert), `poller._check_cpu` + `MetricAlert` (CPU > `CPU_ALERT_PERCENT`, default 90) | `test_poller_failure_and_recovery`, `test_cpu_alerts.py::test_r2_5_*` (89.9/90/90.1 boundary; checkpoint F: down and CPU alerts independent) | AT-03 | One CPU alert per episode; resolves when CPU ≤ threshold; no reading leaves it unchanged |
 | R2.6 Historical graphs | D | ✅ | `monitoring.py` metrics, `TimeSeries.tsx` | `test_monitoring_response_shapes_after_poll`, `test_invalid_metrics_window` | AT-02 | — |
 | R2.7 Metric retention | D | ❌ | — | — | — | — |
 
