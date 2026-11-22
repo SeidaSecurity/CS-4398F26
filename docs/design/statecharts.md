@@ -103,18 +103,32 @@ stateDiagram-v2
     ConfirmPush --> [*] : confirm → §3 per device
 ```
 
-## 7. DHCP lease — R6.1, R6.5, R6.6 — **planned (Track C)**
+## 7. DHCP lease — R6.1, R6.3, R6.6, R6.7 (`app/dhcp/allocator.py`) — implemented
 
 ```mermaid
 stateDiagram-v2
     [*] --> Free
-    Free --> Offered : DISCOVER, address selected (reservation first, else next free)
-    Offered --> Free : offer timeout without REQUEST
-    Offered --> Bound : REQUEST matches / ACK, persist lease
-    Bound --> Bound : renew REQUEST / extend expiry
-    Bound --> Free : RELEASE or expiry
-    Free --> Exhausted : DISCOVER with no free address / log (R6.7)
+    Free --> Offered : DISCOVER / pick reservation, else own lease, else lowest free; hold 60 s; OFFER
+    Free --> Exhausted : DISCOVER, no free address / no reply; log (max 1 per pool per minute, R6.7)
+    Exhausted --> Free : a lease is released or expires
+    Offered --> Bound : REQUEST selecting our server, same address / ACK
+    Offered --> Free : REQUEST selecting another server / no reply
+    Offered --> Offered : REQUEST for a different address / NAK
+    Offered --> Free : hold expires without REQUEST (address reusable)
+    Bound --> Bound : REQUEST renewing (ciaddr = lease) / extend expiry, ACK
+    Bound --> Bound : REQUEST init-reboot for its own address / ACK
+    Bound --> Bound : DISCOVER again (e.g. reboot) / OFFER the same address
+    Bound --> Free : RELEASE / delete lease (R6.6)
+    Bound --> Free : expiry, removed by sweep (R6.6)
 ```
+
+Requests are silent when the server has no pool for the subnet (no `giaddr` → the pool
+containing `DHCP_SERVER_IP`; with `giaddr` → the pool containing it), so the server never
+answers on a network it doesn't own. An init-reboot REQUEST for an address outside the subnet,
+or one held by another client, gets NAK. One with no record of the client is ignored. Each
+address can be in at most one lease (database unique constraint), so a concurrent claim fails
+and the allocator moves to the next address.
+Covered by `tests/test_dhcp_allocator.py`.
 
 ## 8. Operator session — R7.1, R7.2, R4.4 (`app/auth.py`, `app/auth_routes.py`) — implemented
 

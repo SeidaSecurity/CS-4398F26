@@ -11,6 +11,7 @@ commit history and chat exports, and mark those entries "reconstructed".
 | P-003 | 2026-11-18 | Justin | Claude Code (Opus 5.5) | SRS 8.3–8.4 (lab), 5.3.4, ADR-0003 | (uncommitted) |
 | P-004 | 2026-11-19 | Justin | Claude Code (Opus 5.5) | R7.1–R7.4, R3.3, R4.4, NFR-5; SRS 3.1.1 | branch `track-a/7-auth-roles` |
 | P-005 | 2026-11-19 | Justin | Claude Code (Opus 5.5) | R5.1–R5.3, NFR-3, SRS 5.3.1, 5.3.5 | branch `track-c/8-dns-authoritative` |
+| P-006 | 2026-11-20 | Justin | Claude Code (Opus 5.5) | R6.1–R6.3, R6.5–R6.7; SRS 5.3.1 | branch `track-c/9-dhcp` |
 
 ---
 
@@ -346,6 +347,108 @@ lab's SQLite file is still to be measured. No automated UI tests.
 results, dns_probe showing AA and the median ms, the delete confirmation, and the viewer
 read-only view; be ready to explain NXDOMAIN vs NOERROR/no-data and why the tests round-trip
 through wire format)_
+
+---
+
+## P-006 — MoT session: DHCP core (pools, codec, allocator, UDP server), increments 1–4
+
+**Context given (Prompt 0):** `CLAUDE.md`, SRS §4.6, §3.1.6, §5.1 (NFR-2), §5.3.1, §5.3.5,
+§6.1, §6.2, statechart §7, ADR-0006 (structure to mirror), `app/dns/` (pattern), `app/main.py`.
+The session was deliberately split: increments 1–4 (logic, provable without the lab) now; API,
+screen and lab in a follow-up prompt.
+
+**Prompt** (drafted with the agent, sent verbatim):
+> Context: CLAUDE.md, SRS §4.6 (R6.1-R6.7), §3.1.6 (Services screen), §5.1 (NFR-2), §5.3.1,
+> §5.3.5, §6.1 (RFC 2131), §6.2 (raw-socket spike / fallback), docs/design/statecharts.md §7
+> (DHCP lease), docs/decisions/0006-authoritative-dns-design.md (follow the same structure),
+> app/dns/ (pattern to mirror), app/main.py (lifespan).
+> Goal: a DHCP server that issues and tracks leases from operator-defined pools (Track C).
+>
+> Decisions already made (do not re-decide):
+> - Own package app/dhcp/ (rules, packet codec, allocator, server, routes); tables in
+>   app/models.py, new tables only.
+> - No raw sockets and no scapy: a standard UDP socket on port 67 with SO_BROADCAST, replies
+>   broadcast to 255.255.255.255:68 (RFC 2131 §4.1 allows this). The packet codec is our own
+>   (struct-based), covering the BOOTP header and the options we use: 1, 3, 6, 12, 15, 50, 51,
+>   53, 54, 55, 61, 255.
+> - Safety: DHCP only starts when DHCP_ENABLED=true AND DHCP_SERVER_IP is set to an address on
+>   the bound interface that lies inside a configured pool's subnet; otherwise it logs why and
+>   stays off. It must never answer on networks it has no pool for.
+> - Allocation order (R6.1/R6.3): the MAC's reservation, then the MAC's existing lease, then the
+>   lowest free address in the pool. Offers are held briefly; exhaustion sends no offer and
+>   writes a log record (R6.7) into the existing syslog store.
+> - Leases persist in the database (R6.5); expired or released leases free their address (R6.6).
+> - Pool, reservation and lease changes are admin-only (central policy) and audited.
+>
+> Increments, one capability each:
+> 1. Pool, reservation and lease tables plus validation: subnet CIDR, range inside the subnet
+>    (not the network or broadcast address), gateway in the subnet, DNS server list, domain,
+>    lease-time bounds, normalized MACs, reservation inside its pool's subnet, no overlapping
+>    pools (R6.2, R6.3).
+> 2. Packet codec: parse and build DHCP messages; reject truncated packets, a missing magic
+>    cookie, and malformed options.
+> 3. Pure allocator implementing statechart §7: DISCOVER→OFFER, REQUEST→ACK or NAK
+>    (selecting, renewing, wrong server), RELEASE, expiry sweep, exhaustion (R6.1, R6.6, R6.7).
+> 4. UDP server lifecycle in the app lifespan with the safety check above, bind-failure
+>    robustness like DNS, and an integration test of a full DORA exchange over localhost UDP.
+> 5. REST API: pools and reservations CRUD, active leases list, audited (R6.2-R6.4).
+> 6. Services screen DHCP section: pools, reservations, active leases (MAC, IP, hostname,
+>    expiry) with inline help for every field (completes SRS 5.3.5).
+> 7. Lab: an isolated CML segment without VMware DHCP, .env.lab.example keys, check-lab rows, a
+>    load script for NFR-2 (20 concurrent clients, DISCOVER answered in < 500 ms), lab/README
+>    and AT-09 updated.
+>
+> Critical checkpoints to address in the plan:
+> A. RFC 2131 wire correctness: tests work on bytes (header fields, flags, magic cookie,
+>    option encoding), round-tripped through the codec, not just Python objects.
+> B. Rogue-DHCP safety: a test proves the server refuses to start without a matching pool and
+>    interface, and never replies for an unknown subnet.
+> C. Address uniqueness: two clients can never hold the same address, even when requests
+>    arrive concurrently (database constraint plus an allocator test).
+> D. Persistence: leases survive an app restart (R6.5), proven by a test.
+> E. Windows feasibility: receiving broadcasts and sending broadcast replies on Windows is
+>    unproven. Time-box a lab spike to 1 hour inside increment 7; if it fails, document the
+>    fallback (run the stack in an Ubuntu VM on the same segment, SRS 6.2) in an ADR.
+> F. The access-policy route walk covers the new routes; update its minimum operation count.
+>
+> Before coding: show the baseline and the plan, with how each checkpoint is tested. Wait for my OK.
+> Do increments 1-4 in this session; 5-7 come in a follow-up prompt.
+> Constraints: tests named test_r6_N_...; tests fail before and pass after; thin routes; update
+> the RTM and contracts.md each increment; add ADR-0007 for the DHCP design; don't commit;
+> flag good commit points; add prompt-log entry P-006 for this prompt when finished.
+> Done when (this session): ruff, mypy and pytest (coverage ≥ 70%) pass, and the localhost
+> DORA integration test passes over real UDP sockets.
+
+**Planning findings (from read-only checks on the dev PC):**
+- **Checkpoint G, a multi-homed host:** the PC has 5 adapters, including a **real network**
+  (`192.168.1.49`). Binding `0.0.0.0:67` would hear real devices' DHCP requests, which is the
+  rogue-DHCP risk. Decision: bind only to `DHCP_SERVER_IP` (Windows then delivers only that
+  interface's broadcasts).
+- VMware's DHCP service is running on the existing lab network, so DHCP needs its own isolated
+  segment (SRS 4.6.2). That is planned for increment 7.
+
+**Plan review:** seven design points (one row per address with a unique IP; bind to the server
+IP; strict startup check with a restart after the first pool; RFC 2131 §4.3.2 REQUEST handling;
+60–604800 s leases, 60 s offer hold, rate-limited exhaustion log; 300-byte padding; minimal relay
+support). The user approved them all ("design point 1-7 good as is").
+
+**Performance tracking matrix** (🟢 all pass, no regression · 🔴 fail → analysed)
+
+| Inc | Tests | Cov | ruff | mypy | Zone | Notes |
+|---|---|---|---|---|---|---|
+| 0 | 203 / 203 | 92% | 0 | 0 | baseline | 37 routes; 5 adapters on the dev PC |
+| 1 | 243 / 243 | 93% | 2 → 0 | 0 | 🟢 | Pool/reservation/lease rules; network/broadcast vs first/last host; lease 59/60/604800/604801; gateway inside range rejected; Cisco MAC form; **DB rejects two leases for one IP**. 40 new tests failed first |
+| 2 | 260 / 260 | 93% | 0 | 0 | 🔴 → 🟢 | Codec tested on hand-assembled RFC bytes. 17 new tests failed first; then **one test bug**: it searched for `0xff` to find END, but the 255.255.255.0 mask contains `0xff`. Fixed in the test (walk the TLVs), not the codec |
+| 3 | 278 / 278 | 94% | 0 | 0 | 🟢 | Allocator state machine: DORA, allocation order, all REQUEST cases, release/expiry, exhaustion log (59/61 s), **real-network IP → silence** (B). **Race test confirmed by line coverage** to hit the DB-rejection rollback (C). 18 new tests failed first |
+| 4 | 290 / 290 | 93% | 0 | 0 | 🟢 | **Full DORA over real localhost UDP** (done-criterion). Bound address is not 0.0.0.0 (G). Refuses for a non-local IP or with no pool (B). Port in use → app keeps running. Malformed packets ignored. Background sweep. **Leases survive a restart** on a file DB (D). 12 new tests failed first |
+
+**Not verified in this session:** behaviour on a real lab segment, and Windows broadcast send and
+receive across a VMware adapter (checkpoint E, increment 7); the REST API, the Services screen DHCP
+section and NFR-2 load (increments 5–7, next prompt).
+
+**Human verification:** _(fill in: re-run `pytest tests/test_dhcp_*.py`; read `allocator.py`
+`_request` against RFC 2131 §4.3.2; be ready to explain why the server binds to `DHCP_SERVER_IP`
+instead of 0.0.0.0 on this PC, and why broadcast replies avoid raw sockets)_
 
 ---
 

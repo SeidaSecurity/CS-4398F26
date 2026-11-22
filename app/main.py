@@ -22,6 +22,7 @@ from app.config_service import ConfigurationService
 from app.config_templates import TemplateRenderError, render_template
 from app.configuration import DeviceError, NetmikoConnector, record_audit_event
 from app.database import Base, SessionLocal, engine, get_session
+from app.dhcp.server import start_dhcp_service
 from app.dns.routes import router as dns_router
 from app.dns.server import start_dns_service
 from app.models import AuditRecord, ConfigTemplate, ConfigVersion, Device, User, utc_now
@@ -126,6 +127,16 @@ async def lifespan(app: FastAPI):
         if os.getenv("DNS_ENABLED", "false").lower() == "true"
         else None
     )
+    app.state.dhcp_service = dhcp_service = (
+        start_dhcp_service(
+            SessionLocal,
+            os.getenv("DHCP_SERVER_IP", ""),
+            bind_host=os.getenv("DHCP_BIND_HOST") or None,
+            port=int(os.getenv("DHCP_PORT", "67")),
+        )
+        if os.getenv("DHCP_ENABLED", "false").lower() == "true"
+        else None
+    )
     app.state.device_connector = NetmikoConnector()
     monitoring_task = None
     try:
@@ -145,6 +156,8 @@ async def lifespan(app: FastAPI):
                 receivers.stop()
             if dns_service:
                 dns_service.stop()
+            if dhcp_service:
+                dhcp_service.stop()
 
 
 app = FastAPI(

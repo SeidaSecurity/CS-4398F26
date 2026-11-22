@@ -207,3 +207,69 @@ class DnsRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     zone: Mapped[DnsZone] = relationship(back_populates="records")
+
+
+# --- DHCP (SRS 4.6). New tables only. ----------------------------------------------------------
+
+
+class DhcpPool(Base):
+    __tablename__ = "dhcp_pools"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True)
+    subnet: Mapped[str] = mapped_column(String(18), unique=True)  # e.g. "192.168.50.0/24"
+    range_start: Mapped[str] = mapped_column(String(15))
+    range_end: Mapped[str] = mapped_column(String(15))
+    gateway: Mapped[str] = mapped_column(String(15))
+    dns_servers: Mapped[str] = mapped_column(String(255))  # comma-separated IPv4 addresses
+    domain: Mapped[str] = mapped_column(String(253))
+    lease_seconds: Mapped[int] = mapped_column(Integer, default=86_400)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    reservations: Mapped[list["DhcpReservation"]] = relationship(
+        back_populates="pool", cascade="all, delete-orphan"
+    )
+    leases: Mapped[list["DhcpLease"]] = relationship(
+        back_populates="pool", cascade="all, delete-orphan"
+    )
+
+
+class DhcpReservation(Base):
+    __tablename__ = "dhcp_reservations"
+    __table_args__ = (UniqueConstraint("pool_id", "mac"), UniqueConstraint("pool_id", "ip"))
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pool_id: Mapped[int] = mapped_column(
+        ForeignKey("dhcp_pools.id", ondelete="CASCADE"), index=True
+    )
+    mac: Mapped[str] = mapped_column(String(17))  # "aa:bb:cc:dd:ee:ff"
+    ip: Mapped[str] = mapped_column(String(15))
+    hostname: Mapped[str | None] = mapped_column(String(253), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    pool: Mapped[DhcpPool] = relationship(back_populates="reservations")
+
+
+class DhcpLease(Base):
+    """One row per address in use. The unique IP is what makes double allocation impossible."""
+
+    __tablename__ = "dhcp_leases"
+    __table_args__ = (
+        UniqueConstraint("ip"),
+        UniqueConstraint("pool_id", "mac"),
+        CheckConstraint("state IN ('offered', 'bound')"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pool_id: Mapped[int] = mapped_column(
+        ForeignKey("dhcp_pools.id", ondelete="CASCADE"), index=True
+    )
+    mac: Mapped[str] = mapped_column(String(17))
+    ip: Mapped[str] = mapped_column(String(15))
+    hostname: Mapped[str | None] = mapped_column(String(253), nullable=True)
+    state: Mapped[str] = mapped_column(String(7))  # offered | bound
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    pool: Mapped[DhcpPool] = relationship(back_populates="leases")
