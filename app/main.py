@@ -22,6 +22,7 @@ from app.config_service import ConfigurationService
 from app.config_templates import TemplateRenderError, render_template
 from app.configuration import DeviceError, NetmikoConnector, record_audit_event
 from app.database import Base, SessionLocal, engine, get_session
+from app.dhcp.routes import router as dhcp_router
 from app.dhcp.server import start_dhcp_service
 from app.dns.routes import router as dns_router
 from app.dns.server import start_dns_service
@@ -170,6 +171,7 @@ app.include_router(monitoring_router)
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(dns_router)
+app.include_router(dhcp_router)
 
 
 @app.get("/health")

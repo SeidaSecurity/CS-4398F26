@@ -75,6 +75,15 @@ Credentials are deliberately outside the device table. The current lab adapter l
 - Runtime: `DHCP_ENABLED=true`, `DHCP_SERVER_IP` (a local address inside some pool's subnet; also
   the bound address and the server identifier, option 54), optional `DHCP_BIND_HOST` (default
   = `DHCP_SERVER_IP`), `DHCP_PORT` (default 67). Fails safe: logs and stays off otherwise.
+- REST (reads open to viewers, writes admin-only, all writes audited as `dhcp.pool.*`,
+  `dhcp.reservation.*`, `dhcp.lease.release`): `GET/POST /api/v1/dhcp/pools`;
+  `PATCH/DELETE /api/v1/dhcp/pools/{id}` (PATCH: any field, nulls rejected, whole pool
+  re-validated; DELETE also removes its reservations and leases, and the audit detail records
+  how many); `GET/POST /api/v1/dhcp/pools/{id}/reservations`; `DELETE /api/v1/dhcp/reservations/{id}`;
+  `GET /api/v1/dhcp/leases[?pool_id=]` (unexpired leases, offered or bound, with `pool_name`);
+  `DELETE /api/v1/dhcp/leases/{id}` (admin release; the address is offerable immediately).
+  Pool responses include `dns_servers` (list), `reservation_count` and `active_lease_count`.
+  Errors: `422` rule violation, `409` overlap/duplicate/in use, `404` unknown or expired id.
 - Exhaustion writes a log record (`source` `netmgr-dhcp`, severity 4) at most once per pool per
   minute; it appears on the Logs screen.
 

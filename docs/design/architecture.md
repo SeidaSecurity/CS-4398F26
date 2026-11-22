@@ -12,8 +12,8 @@ flowchart LR
     subgraph Controller["Controller — FastAPI"]
         Policy{{auth.enforce_access<br/>401 / 403 for every route}}
         Routes[app/main.py routes · monitoring.py<br/>auth_routes.py · user_routes.py]
-        Domain[config_service.py · configuration.py · config_templates.py<br/>poller.py · syslog.py · auth.py]
-        Adapters[NetmikoConnector · probes.py<br/>SyslogReceivers]
+        Domain[config_service.py · configuration.py · config_templates.py<br/>poller.py · syslog.py · auth.py<br/>dns/resolver.py · dhcp/allocator.py]
+        Adapters[NetmikoConnector · probes.py<br/>SyslogReceivers · DnsService · DhcpService]
     end
     subgraph Model["Model"]
         ORM[app/models.py SQLAlchemy] --> DB[(PostgreSQL)]
@@ -26,6 +26,8 @@ flowchart LR
     Adapters -- SSH 22 --> Dev[Lab routers]
     Adapters -- ICMP / SNMP 161 --> Dev
     Dev -- syslog 514 --> Adapters
+    Clients[Lab hosts] -- DNS 53 --> Adapters
+    Clients -- DHCP 67/68 --> Adapters
 ```
 
 | Package / module | Responsibility | Track | Requirements |
@@ -43,7 +45,9 @@ flowchart LR
 | `app/configuration.py` | Netmiko connector, credential lookup, version and audit writers | B | R3.1–R3.3, R4.4 |
 | `app/config_templates.py` | Placeholder validation and rendering | B | R3.7 |
 | `app/syslog.py` | UDP/TCP listeners, RFC 5424 / Cisco IOS / RFC 3164 parser, search | B | R4.1–R4.3 |
-| `web/` | Login, Network, Devices, Push, History, Logs, Accounts; Services screen (DNS/DHCP) not yet built | all | 3.1 |
+| `app/dns/` | `zones.py` rules, `resolver.py` (pure answering), `server.py` (UDP+TCP), `routes.py` | C | R5.1–R5.3 |
+| `app/dhcp/` | `pools.py` rules, `packet.py` codec, `allocator.py` (state machine), `server.py` (UDP), `routes.py` | C | R6.1–R6.7 |
+| `web/` | Login, Network, Devices, Push, History, Logs, Services (DNS and DHCP tabs), Accounts | all | 3.1 |
 
 **Concurrency.** The API is async. Blocking device I/O runs off the event loop:
 `poll_all` runs via `asyncio.to_thread`, and syslog uses `socketserver` threads. Each syslog
@@ -124,6 +128,43 @@ included routers.
   logout, expiry, disabling and role changes all take effect on the next request.
 - **Last-admin guard:** `update_user` refuses (409) any change that would leave zero active
   admins.
+
+### 2.9 DNS resolution (`dns/resolver.answer`, ADR-0006)
+1. Lowercase the question name. Pick the **most specific local zone** that contains it (longest
+   suffix). If none, answer **REFUSED**, without AA.
+2. Set AA=1 and RA=0. Repeat at most 8 times:
+   - an **SOA query at the apex** → answer with the zone's generated SOA;
+   - a **CNAME at the name**, when the query isn't for CNAME → add it to the answer; follow the
+     target if it is in a local zone, otherwise stop (the client resolves it);
+   - **records of the queried type** → answer with them;
+   - otherwise → **NOERROR/no data** if the name exists (the apex, a name with records, or an empty
+     non-terminal), else **NXDOMAIN**. Either way, add the SOA (negative TTL 300 s) to the authority
+     section (RFC 2308).
+3. More than 8 CNAME hops → **SERVFAIL** (loop protection).
+
+The function is pure: zone data in, reply out. `DatabaseResolver` loads the zones fresh for each
+query (measured 1.41 ms median on the lab, NFR-3).
+
+### 2.10 DHCP allocation (`dhcp/allocator.Allocator.handle`, ADR-0007)
+1. **Pool selection:** by `giaddr` for a relayed request, else by `DHCP_SERVER_IP`. No pool → silence.
+2. **DISCOVER:** try, in order, the MAC's reservation, its existing lease, then each address in the
+   range from the lowest. Skip addresses held by an unexpired lease or reserved for another MAC.
+   Claim the first that works as an `offered` lease held for 60 s. **The database's unique IP
+   decides races:** if another writer committed the address first, the insert fails, is rolled
+   back, and the next address is tried. Nothing free → no reply, plus one warning log per pool per
+   minute (R6.7).
+3. **REQUEST** (RFC 2131 §4.3.2):
+   - *selecting* (server ID present): ours and the same address → bind and ACK; another server →
+     drop our offer silently; otherwise NAK;
+   - *init-reboot* (requested IP, no `ciaddr`): our lease → ACK; outside the subnet or someone
+     else's address → NAK; no record → silence;
+   - *renewing/rebinding* (`ciaddr` set): a valid bound lease → extend and ACK; otherwise NAK.
+4. **Bind:** state `bound`, expiry now + the pool's lease time. **RELEASE** deletes the lease.
+   The background **sweep** (every 60 s) deletes expired leases, so their addresses return (R6.6).
+5. **Replies** (RFC 2131 §4.1, in `server.py`): to the relay if `giaddr` is set, unicast to
+   `ciaddr` for renewals, otherwise broadcast to `255.255.255.255:68`. That is why no raw socket
+   is needed. The socket is bound to `DHCP_SERVER_IP`, never `0.0.0.0`, so a multi-homed PC
+   cannot answer on its real network.
 
 ## 3. Deployment
 

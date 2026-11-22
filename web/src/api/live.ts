@@ -5,6 +5,7 @@ import type {
   Interface, LogQuery, LogRecord, NetworkMetrics, TimeWindow, TopologyLink,
   CurrentUser, UserAccount, UserCreate, UserUpdate,
   DnsRecord, DnsRecordCreate, DnsRecordUpdate, DnsZone, DnsZoneCreate,
+  DhcpLease, DhcpPool, DhcpPoolCreate, DhcpPoolUpdate, DhcpReservation, DhcpReservationCreate,
 } from './types'
 import { UNAUTHORIZED_EVENT } from './session'
 
@@ -186,4 +187,42 @@ export function updateDnsRecord(recordId: number, patch: DnsRecordUpdate): Promi
 
 export function deleteDnsRecord(recordId: number): Promise<void> {
   return request(`/dns/records/${recordId}`, { method: 'DELETE' })
+}
+
+// --- DHCP (R6.2-R6.4) -------------------------------------------------------------------------
+
+export function listDhcpPools(): Promise<DhcpPool[]> {
+  return request('/dhcp/pools')
+}
+
+export function createDhcpPool(payload: DhcpPoolCreate): Promise<DhcpPool> {
+  return request('/dhcp/pools', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export function updateDhcpPool(poolId: number, patch: DhcpPoolUpdate): Promise<DhcpPool> {
+  return request(`/dhcp/pools/${poolId}`, { method: 'PATCH', body: JSON.stringify(patch) })
+}
+
+export function deleteDhcpPool(poolId: number): Promise<void> {
+  return request(`/dhcp/pools/${poolId}`, { method: 'DELETE' })
+}
+
+export function listDhcpReservations(poolId: number): Promise<DhcpReservation[]> {
+  return request(`/dhcp/pools/${poolId}/reservations`)
+}
+
+export function createDhcpReservation(poolId: number, payload: DhcpReservationCreate): Promise<DhcpReservation> {
+  return request(`/dhcp/pools/${poolId}/reservations`, { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export function deleteDhcpReservation(reservationId: number): Promise<void> {
+  return request(`/dhcp/reservations/${reservationId}`, { method: 'DELETE' })
+}
+
+export function listDhcpLeases(poolId?: number): Promise<DhcpLease[]> {
+  return request(poolId === undefined ? '/dhcp/leases' : `/dhcp/leases?pool_id=${poolId}`)
+}
+
+export function releaseDhcpLease(leaseId: number): Promise<void> {
+  return request(`/dhcp/leases/${leaseId}`, { method: 'DELETE' })
 }

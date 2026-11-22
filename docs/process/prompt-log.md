@@ -12,6 +12,7 @@ commit history and chat exports, and mark those entries "reconstructed".
 | P-004 | 2026-11-19 | Justin | Claude Code (Opus 5.5) | R7.1–R7.4, R3.3, R4.4, NFR-5; SRS 3.1.1 | branch `track-a/7-auth-roles` |
 | P-005 | 2026-11-19 | Justin | Claude Code (Opus 5.5) | R5.1–R5.3, NFR-3, SRS 5.3.1, 5.3.5 | branch `track-c/8-dns-authoritative` |
 | P-006 | 2026-11-20 | Justin | Claude Code (Opus 5.5) | R6.1–R6.3, R6.5–R6.7; SRS 5.3.1 | branch `track-c/9-dhcp` |
+| P-007 | 2026-11-21 | Justin | Claude Code (Opus 5.5) | R6.2–R6.4, SRS 5.3.5; design docs | branch `track-c/10-dhcp-api-ui` |
 
 ---
 
@@ -449,6 +450,87 @@ section and NFR-2 load (increments 5–7, next prompt).
 **Human verification:** _(fill in: re-run `pytest tests/test_dhcp_*.py`; read `allocator.py`
 `_request` against RFC 2131 §4.3.2; be ready to explain why the server binds to `DHCP_SERVER_IP`
 instead of 0.0.0.0 on this PC, and why broadcast replies avoid raw sockets)_
+
+---
+
+## P-007 — MoT session: DHCP API and screen, design docs for Track C (increments 5, 6, 8)
+
+**Context given (Prompt 0):** `CLAUDE.md`, SRS §4.6 (R6.2–R6.4), §3.1.6, §3.1, §5.3.5, ADR-0007,
+`app/dhcp/`, `app/dns/routes.py` and `Services.tsx` (patterns), the design docs and the RTM.
+Lab increment 7 (isolated segment, NFR-2 load test) was **deliberately deferred** to keep this
+session on the baseline (Essential) requirements.
+
+**Prompt** (drafted with the agent, sent verbatim):
+> Context: CLAUDE.md, SRS §4.6 (R6.2-R6.4), §3.1.6, §3.1 (confirm destructive actions), §5.3.5,
+> docs/decisions/0007-dhcp-server-design.md, app/dhcp/ (pools.py, allocator.py, server.py),
+> app/dns/routes.py and web/src/pages/Services.tsx (patterns to mirror),
+> docs/design/class-diagram.md, docs/design/architecture.md, docs/verification/traceability-matrix.md.
+> Goal: finish the baseline DHCP requirements (API + screen) and bring the design docs up to date.
+> Skip the lab increment (isolated segment, NFR-2 load test) for now.
+>
+> Decisions already made (do not re-decide):
+> - REST under /api/v1/dhcp: pools (GET/POST, PATCH/DELETE by id), reservations (GET/POST per
+>   pool, DELETE by id), leases (GET active leases, optional ?pool_id; DELETE by id = admin
+>   "release"). Writes admin-only via the central policy and audited (dhcp.pool.*,
+>   dhcp.reservation.*, dhcp.lease.release). Errors like DNS: 422 rules, 409 conflicts, 404.
+> - Deleting a pool also deletes its reservations and leases; the UI confirms and states how
+>   many active leases will be dropped.
+> - Services screen gets DNS | DHCP tabs. The DHCP tab shows pools, reservations and the active
+>   leases table (MAC, IP, hostname, state, expiry), refreshing every 10 s; every field has inline
+>   help (SRS 5.3.5); viewers see everything but no write controls; mock mode keeps working.
+> - The UI notes that DHCP starts only after a restart once the first pool exists (ADR-0007).
+>
+> Increments, one capability each:
+> 5. DHCP REST API (R6.2, R6.3, R6.4), audited, thin routes over pools.py/allocator.
+> 6. Services screen DHCP tab (R6.4, completes SRS 5.3.5).
+> 8. Design docs: add the DNS and DHCP packages to the class diagram; describe the resolver and
+>    allocator algorithms in architecture.md; correct the R3.4 RTM row (it says done but its note
+>    says the diff is untested - mark it partial); add the "hypervisor came back after a Windows
+>    update" check (systeminfo / bcdedit hypervisorlaunchtype / DeviceGuard VBS) to the
+>    lab/README troubleshooting section.
+>
+> Critical checkpoints to address in the plan:
+> A. The route walk covers the new routes; update its minimum operation count.
+> B. Pool deletion while leases are active is explicit (API behaviour + UI confirmation text).
+> C. Lease release through the API must free the address for the allocator immediately (test it
+>    end to end: release via REST, then a DISCOVER gets that address).
+>
+> Before coding: show the baseline and the plan, with how each checkpoint is tested. Wait for my OK.
+> Constraints: tests named test_r6_N_...; tests fail before and pass after; update the RTM and
+> contracts.md each increment; don't commit; flag good commit points; never read .env.lab; add
+> prompt-log entry P-007 for this prompt when finished.
+> Done when: ruff, mypy, pytest (coverage >= 70%) and npm run build pass, R6.2-R6.4 are ✅ in the
+> RTM, and on the lab I can create a pool, a reservation, and see the leases table on the
+> Services screen.
+
+**Plan review:** six design points (active leases = unexpired offered + bound; pool responses
+carry reservation and active-lease counts for the delete confirmation; PATCH re-validates the
+whole pool and rejects nulls; no reservation PATCH; the tab in the URL, `?tab=dhcp`; releasing an
+expired or unknown lease → 404). The user approved them all ("design points 1-6 good as written").
+
+**Context for this session:** before it, lab bring-up had been blocked by a Windows update that
+turned the Windows hypervisor/VBS back on (`EnableVirtualizationBasedSecurity = 1`,
+`hypervisorlaunchtype` not off), so VMware could not virtualize AMD-V for CML. That was diagnosed
+read-only and fixed by the user, and documented in increment 8.
+
+**Performance tracking matrix** (🟢 all pass, no regression)
+
+| Inc | Tests | Cov | ruff | mypy | tsc / build | Zone | Notes |
+|---|---|---|---|---|---|---|---|
+| 0 | 290 / 290 | 93% | 0 | 0 | ✅ | baseline | Route-walk minimum 37 |
+| 5 | 301 / 301 | 94% | 3 → 0 | 0 | — | 🟢 | 9 operations, `routes.py` 100% covered. **B:** deleting a pool with 2 active leases and 1 reservation cascades, and the counts are audited. **C:** allocator lease → REST release → another client is offered that exact address. The route walk covered all 9 new routes automatically (minimum → 46). 11 new tests failed first |
+| 6 | 301 / 301 | 94% | 0 | 0 | ✅ / ✅ | 🟢 | DNS/DHCP tabs (URL `?tab=dhcp`); pools, reservations, live leases table (10 s refresh); confirmations with counts; help on every field; viewer read-only; mock data. No automated UI tests (verified by tsc/build + lab) |
+| 8 | 301 / 301 | 94% | 0 | 0 | — | 🟢 | Class diagram: Track C section (DNS and DHCP models, modules, services, routes). Architecture: §2.9 DNS resolution, §2.10 DHCP allocation, module rows, structure diagram. **R3.4 downgraded to 🟡** (honest). Lab README: hypervisor-after-update check. Deliverables index refreshed |
+
+**Requirements closed:** R6.2, R6.3, R6.4 ✅, so all 9 Track C Essentials are done. SRS 5.3.5
+in-program help ✅.
+
+**Not verified in this session:** a real client lease on an isolated segment and NFR-2 load
+(increment 7, deferred); the Mermaid diagrams' rendering on GitHub (check after pushing).
+
+**Human verification:** _(fill in: on the lab, Services → DHCP: create the pool, add the
+reservation, see the leases table (and a lease if DHCP is running); try the delete-pool
+confirmation text; check the new class diagram and §2.9–2.10 render on GitHub)_
 
 ---
 
