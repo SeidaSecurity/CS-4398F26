@@ -12,11 +12,18 @@ def as_utc(value: datetime) -> datetime:
 UTCDateTime = Annotated[datetime, AfterValidator(as_utc)]
 
 
-class DeviceCreate(BaseModel):
+class DeviceBase(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     management_ip: str = Field(min_length=1, max_length=255)
     platform: str = Field(default="cisco_ios", min_length=1, max_length=80)
     ssh_port: int = Field(default=22, ge=1, le=65535)
+
+
+class DeviceCreate(DeviceBase):
+    # Write-only (R1.1, R1.4): stored encrypted, never part of any response model.
+    username: str | None = Field(default=None, max_length=120)
+    password: str | None = Field(default=None, max_length=256)
+    secret: str | None = Field(default=None, max_length=256)
 
 
 class PartialUpdate(BaseModel):
@@ -37,13 +44,17 @@ class DeviceUpdate(PartialUpdate):
     management_ip: str | None = Field(default=None, min_length=1, max_length=255)
     platform: str | None = Field(default=None, min_length=1, max_length=80)
     ssh_port: int | None = Field(default=None, ge=1, le=65535)
+    username: str | None = Field(default=None, max_length=120)  # write-only
+    password: str | None = Field(default=None, max_length=256)  # write-only
+    secret: str | None = Field(default=None, max_length=256)  # write-only
 
 
-class DeviceRead(DeviceCreate):
+class DeviceRead(DeviceBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     created_at: datetime
+    has_credentials: bool  # the only credential information ever returned
 
 
 class ConfigVersionRead(BaseModel):

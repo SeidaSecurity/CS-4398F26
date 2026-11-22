@@ -37,6 +37,7 @@ const devices: Device[] = [
   platform: 'cisco_ios',
   ssh_port: 22,
   created_at: iso(epoch - (30 - index) * 24 * hour),
+  has_credentials: index < 3,
 }))
 
 const statuses: DeviceStatus[] = devices.map(device => ({
@@ -248,6 +249,7 @@ export async function createDevice(payload: DeviceCreate): Promise<Device> {
     name: payload.name, management_ip: payload.management_ip,
     platform: payload.platform ?? 'cisco_ios', ssh_port: port,
     id: nextDeviceId++, created_at: iso(Date.now()),
+    has_credentials: Boolean(payload.username && payload.password),
   }
   devices.push(device)
   statuses.push({ device_id: device.id, state: 'up', last_poll_at: iso(Date.now()), consecutive_failures: 0 })
@@ -272,7 +274,7 @@ export async function updateDevice(deviceId: number, patch: Partial<DeviceCreate
   if (devices.some(other => other.id !== deviceId && other.name === updated.name)) {
     throw new Error('A device with that name already exists')
   }
-  Object.assign(device, updated)
+  Object.assign(device, updated, { has_credentials: device.has_credentials || Boolean(patch.password) })
   return copy(device)
 }
 

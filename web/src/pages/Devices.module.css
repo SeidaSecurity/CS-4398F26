@@ -100,3 +100,9 @@
   font-size: 12px;
   white-space: nowrap;
 }
+
+.help {
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--gray-600);
+}

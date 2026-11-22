@@ -1,13 +1,21 @@
-export interface DeviceCreate {
+export interface DeviceBase {
   name: string
   management_ip: string
   platform?: string
   ssh_port?: number
 }
 
-export interface Device extends Required<DeviceCreate> {
+/** Credentials are write-only: sent on create/update, never returned (R1.4). */
+export interface DeviceCreate extends DeviceBase {
+  username?: string
+  password?: string
+  secret?: string
+}
+
+export interface Device extends Required<DeviceBase> {
   id: number
   created_at: string
+  has_credentials: boolean
 }
 
 export interface ConfigVersion {

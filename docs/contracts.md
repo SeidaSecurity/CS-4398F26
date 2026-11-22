@@ -13,7 +13,12 @@ These are implementation defaults, not team-approved shared contracts. Review th
 | `ssh_port` | integer | SSH port, default 22 |
 | `created_at` | UTC datetime | Record creation time |
 
-Credentials are deliberately outside the device table. The current lab adapter looks them up by device name in `NETMGR_DEVICE_CREDENTIALS_JSON`. A proper shared secrets manager/credential-encryption approach must be agreed before production use.
+Credentials (ADR-0008) are write-only: `POST`/`PATCH /api/v1/devices` accept `username`,
+`password` and optional `secret`; they are stored Fernet-encrypted in `device_credentials` with the key
+from `NETMGR_SECRET_KEY`, and responses expose only `has_credentials`. Blank or partial credentials →
+422; no key configured → 503 (nothing saved). On PATCH, omitting them keeps the stored ones, and
+updating only the password keeps the enable secret. Devices without stored credentials fall back to
+`NETMGR_DEVICE_CREDENTIALS_JSON` (ADR-0002, lab use).
 
 ## Authentication (ADR-0005)
 

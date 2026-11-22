@@ -32,6 +32,9 @@ export default function Devices() {
   const [managementIp, setManagementIp] = useState('')
   const [platform, setPlatform] = useState('cisco_ios')
   const [sshPort, setSshPort] = useState('22')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [secret, setSecret] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
 
@@ -102,6 +105,9 @@ export default function Devices() {
     setManagementIp(selected.management_ip)
     setPlatform(selected.platform)
     setSshPort(String(selected.ssh_port))
+    setUsername('')
+    setPassword('')
+    setSecret('')
     setAddError(null)
     setEditing(selected)
   }
@@ -117,12 +123,19 @@ export default function Devices() {
         management_ip: managementIp.trim(),
         platform: platform.trim() || 'cisco_ios',
         ssh_port: Number(sshPort),
+        // Credentials are sent only when entered; on edit, blank means "keep the stored ones".
+        ...(username.trim() ? { username: username.trim() } : {}),
+        ...(password ? { password } : {}),
+        ...(secret ? { secret } : {}),
       }
       const device = editing
         ? await api.updateDevice(editing.id, payload)
         : await api.createDevice(payload)
       reload()
       setAdding(false)
+      setEditing(null)
+      setPassword('')
+      setSecret('')
       setSelectedId(device.id)
     } catch (reason) {
       setAddError(reason instanceof Error ? reason.message : String(reason))
@@ -191,6 +204,10 @@ export default function Devices() {
               <label className={styles.field}>Management IP<TextInput required value={managementIp} onChange={event => setManagementIp(event.target.value)} disabled={submitting} /></label>
               <label className={styles.field}>Platform<TextInput value={platform} onChange={event => setPlatform(event.target.value)} disabled={submitting} /></label>
               <label className={styles.field}>SSH port<TextInput type="number" min={1} max={65535} required value={sshPort} onChange={event => setSshPort(event.target.value)} disabled={submitting} /></label>
+              <label className={styles.field}>SSH username<TextInput autoComplete="off" value={username} onChange={event => setUsername(event.target.value)} disabled={submitting} placeholder={editing?.has_credentials ? 'unchanged' : ''} /></label>
+              <label className={styles.field}>SSH password<TextInput type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} disabled={submitting} placeholder={editing?.has_credentials ? 'unchanged' : ''} /></label>
+              <label className={styles.field}>Enable secret (optional)<TextInput type="password" autoComplete="new-password" value={secret} onChange={event => setSecret(event.target.value)} disabled={submitting} placeholder={editing?.has_credentials ? 'unchanged' : ''} /></label>
+              <span className={styles.help}>Stored encrypted on the server and never shown again. {editing?.has_credentials ? 'Leave blank to keep the stored credentials.' : 'Without them, the device uses the lab credentials file (.env.lab).'}</span>
               {addError && <div role="alert" className={styles.addError}>{addError}</div>}
               <Button type="submit" variant="primary" disabled={submitting}>{editing ? 'Save' : 'Add'}</Button>
             </form>
@@ -205,6 +222,7 @@ export default function Devices() {
               <StatRow caption="Management IP" value={<span className={styles.mono}>{selected.management_ip}</span>} />
               <StatRow caption="Platform" value={<span className={styles.mono}>{selected.platform}</span>} />
               <StatRow caption="SSH port" value={selected.ssh_port} />
+              <StatRow caption="Credentials" value={selected.has_credentials ? 'Stored (encrypted)' : 'From lab file (.env.lab)'} />
               <StatRow caption="Last poll" value={selectedStatus && relativeTime(selectedStatus.last_poll_at)} />
               <StatRow caption="Added" value={formatTime(selected.created_at)} />
               {isAdmin && <div className={styles.actions}>

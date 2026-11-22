@@ -32,6 +32,14 @@ class Device(Base):
     config_versions: Mapped[list["ConfigVersion"]] = relationship(
         back_populates="device", cascade="all, delete-orphan"
     )
+    # Encrypted credentials live in their own table (R1.4, ADR-0008); no column on devices.
+    credential: Mapped["DeviceCredential | None"] = relationship(
+        back_populates="device", cascade="all, delete-orphan", uselist=False
+    )
+
+    @property
+    def has_credentials(self) -> bool:
+        return self.credential is not None
 
 
 class ConfigVersion(Base):
@@ -273,3 +281,22 @@ class DhcpLease(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     pool: Mapped[DhcpPool] = relationship(back_populates="leases")
+
+
+# --- Encrypted device credentials (R1.1, R1.4, NFR-6). New table only. -------------------------
+
+
+class DeviceCredential(Base):
+    """Fernet ciphertext only; the key comes from NETMGR_SECRET_KEY and is never stored here."""
+
+    __tablename__ = "device_credentials"
+
+    device_id: Mapped[int] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True
+    )
+    username: Mapped[str] = mapped_column(String(120))
+    password_ciphertext: Mapped[str] = mapped_column(Text)
+    secret_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    device: Mapped[Device] = relationship(back_populates="credential")

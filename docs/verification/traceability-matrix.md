@@ -12,10 +12,10 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 
 | ID | Pri | Status | Implementation | Unit test | Acceptance | Gap / note |
 |---|---|---|---|---|---|---|
-| R1.1 Add device | E | 🟡 | `app/main.py` `create_device` | `test_api.py::test_device_create_and_duplicate_conflict` | AT-01 | Credentials are not captured in the add form (they come from an env var) |
+| R1.1 Add device | E | ✅ | `create_device` with write-only `username`/`password`/`secret`; Devices form fields | `test_device_credentials_api.py::test_r1_1_*` | AT-01 | Credentials entered with the device (ADR-0008); env JSON remains a lab fallback |
 | R1.2 Edit/remove | E | ✅ | `update_device`, `delete_device`, `schemas.PartialUpdate` | `test_device_patch_then_delete`, `test_r1_2_patch_rejects_explicit_null` | AT-01 | — |
 | R1.3 Connection test | E | ❌ | — | — | AT-01 | No test connection before saving; no "save anyway" path |
-| R1.4 Credential protection | E | 🟡 | `app/configuration.py` `EnvironmentCredentials` | — | — | Never returned to the browser ✔, but stored in plaintext in an env var, not encrypted |
+| R1.4 Credential protection | E | ✅ | `app/credentials.py` (Fernet, key from `NETMGR_SECRET_KEY`), `DeviceCredential`; responses expose only `has_credentials` | `test_credentials.py::test_r1_4_*`, `test_r1_4_credentials_never_appear_in_any_device_response` (walks every device response, audit, errors) | AT-01 | No plaintext fallback for stored credentials |
 | R1.5 Device grouping | D | ❌ | — | — | — | Needed for "device group" push (4.3.4 step 1) |
 | R1.6 Discovery | M | ⏸ | — | — | — | — |
 
@@ -98,7 +98,7 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 | NFR-3 DNS < 50 ms | ✅ | Measured on the CML lab (2026-11-19, real SQLite DB, `scripts/dns_probe.py`): median 1.41 ms, max 2.84 ms over 20 queries. Per-query DB read is fast enough; no cache needed (ADR-0006 point 5) |
 | NFR-4 1,000 logs/min, no loss | ❌ not measured | Script synthetic syslog load; count stored rows |
 | NFR-5 Salted password hashes | ✅ | argon2id with a random salt per hash (`test_r7_3_hash_is_salted_and_not_the_password`) |
-| NFR-6 Credentials encrypted, key outside DB | ❌ | Env-var plaintext today |
+| NFR-6 Credentials encrypted, key outside DB | ✅ | Fernet ciphertext in `device_credentials`; key only in the environment (`test_r1_4_database_holds_only_ciphertext`, wrong/missing-key tests); ADR-0008 |
 | NFR-7 HTTPS | ❌ | Plain HTTP on :8000 |
 | NFR-8 Audit not modifiable via UI | ✅ | Only `GET /api/v1/audit` exists; no update/delete route |
 | 5.3.1 One failing subsystem doesn't stop the others | ✅ | DNS and syslog log a bind failure and the app keeps running (`test_5_3_1_*`; the syslog case crashed startup before, proven fail-before) |
