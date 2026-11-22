@@ -17,7 +17,7 @@ from app.models import AuditRecord, Device
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 PUBLIC = {("POST", "/api/v1/auth/login"), ("POST", "/api/v1/auth/logout")}
 ADMIN_ONLY_READ_PREFIXES = ("/api/v1/users",)
-MIN_EXPECTED_OPERATIONS = 37  # 29 + DNS zones (4) and records (4)
+MIN_EXPECTED_OPERATIONS = 46  # 37 + DHCP pools (4), reservations (3), leases (2)
 
 
 def _operations():
