@@ -12,6 +12,18 @@ export interface DeviceCreate extends DeviceBase {
   secret?: string
 }
 
+/** R1.3: test unsaved form values; credentials are used once and not stored. */
+export type ConnectionTestRequest = Omit<DeviceCreate, 'name'>
+
+export type ConnectionStage = 'reachability' | 'login' | 'enable'
+
+export interface ConnectionTestResult {
+  ok: boolean
+  failed_stage: ConnectionStage | null
+  message: string
+  checks: { stage: ConnectionStage; ok: boolean; message: string }[]
+}
+
 export interface Device extends Required<DeviceBase> {
   id: number
   created_at: string

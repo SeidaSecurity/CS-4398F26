@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Article, ChartLine, Check, ClockCounterClockwise, Graph, HardDrives, Info, PencilSimple, Plugs, Plus, Pulse, Stack, Trash, X } from '@phosphor-icons/react'
 import { api, useApi } from '../api'
-import type { Device, DeviceStatus } from '../api'
+import type { ConnectionTestResult, Device, DeviceCreate, DeviceStatus } from '../api'
 import { useAuth } from '../auth'
 import { RightPanel } from '../components/Layout'
 import { DeviceIllustration, PortGrid, Topology, deviceKind } from '../components/devices'
@@ -35,6 +35,8 @@ export default function Devices() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [secret, setSecret] = useState('')
+  const [testFailure, setTestFailure] = useState<ConnectionTestResult | null>(null)
+  const [testing, setTesting] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
 
@@ -95,6 +97,10 @@ export default function Devices() {
     setManagementIp('')
     setPlatform('cisco_ios')
     setSshPort('22')
+    setUsername('')
+    setPassword('')
+    setSecret('')
+    setTestFailure(null)
     setAddError(null)
     setAdding(true)
   }
@@ -112,21 +118,37 @@ export default function Devices() {
     setEditing(selected)
   }
 
-  async function saveDevice(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
+  function formPayload(): DeviceCreate {
+    return {
+      name: name.trim(),
+      management_ip: managementIp.trim(),
+      platform: platform.trim() || 'cisco_ios',
+      ssh_port: Number(sshPort),
+      // Credentials are sent only when entered; on edit, blank means "keep the stored ones".
+      ...(username.trim() ? { username: username.trim() } : {}),
+      ...(password ? { password } : {}),
+      ...(secret ? { secret } : {}),
+    }
+  }
+
+  // R1.3: a new device is connection-tested first; on failure the operator chooses
+  // "Save anyway" or "Fix". Editing saves directly.
+  async function submitDevice(skipTest: boolean) {
     if (submitting) return
     setSubmitting(true)
     setAddError(null)
+    setTestFailure(null)
     try {
-      const payload = {
-        name: name.trim(),
-        management_ip: managementIp.trim(),
-        platform: platform.trim() || 'cisco_ios',
-        ssh_port: Number(sshPort),
-        // Credentials are sent only when entered; on edit, blank means "keep the stored ones".
-        ...(username.trim() ? { username: username.trim() } : {}),
-        ...(password ? { password } : {}),
-        ...(secret ? { secret } : {}),
+      const payload = formPayload()
+      if (!editing && !skipTest) {
+        setTesting(true)
+        const { name: _name, ...form } = payload
+        const result = await api.testConnection(form)
+        setTesting(false)
+        if (!result.ok) {
+          setTestFailure(result)
+          return
+        }
       }
       const device = editing
         ? await api.updateDevice(editing.id, payload)
@@ -140,8 +162,14 @@ export default function Devices() {
     } catch (reason) {
       setAddError(reason instanceof Error ? reason.message : String(reason))
     } finally {
+      setTesting(false)
       setSubmitting(false)
     }
+  }
+
+  function saveDevice(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    void submitDevice(false)
   }
 
   async function removeDevice() {
@@ -209,7 +237,18 @@ export default function Devices() {
               <label className={styles.field}>Enable secret (optional)<TextInput type="password" autoComplete="new-password" value={secret} onChange={event => setSecret(event.target.value)} disabled={submitting} placeholder={editing?.has_credentials ? 'unchanged' : ''} /></label>
               <span className={styles.help}>Stored encrypted on the server and never shown again. {editing?.has_credentials ? 'Leave blank to keep the stored credentials.' : 'Without them, the device uses the lab credentials file (.env.lab).'}</span>
               {addError && <div role="alert" className={styles.addError}>{addError}</div>}
-              <Button type="submit" variant="primary" disabled={submitting}>{editing ? 'Save' : 'Add'}</Button>
+              {testing && <div role="status" className={styles.help}>Testing connection (up to about 20 seconds)…</div>}
+              {testFailure && (
+                <div role="alert" className={styles.testFailure}>
+                  <strong>Connection test failed at the {testFailure.failed_stage} stage.</strong>
+                  <span>{testFailure.message}</span>
+                  <div className={styles.testActions}>
+                    <Button onClick={() => setTestFailure(null)}>Fix</Button>
+                    <Button variant="primary" onClick={() => void submitDevice(true)}>Save anyway</Button>
+                  </div>
+                </div>
+              )}
+              {!testFailure && <Button type="submit" variant="primary" disabled={submitting}>{editing ? 'Save' : 'Test and add'}</Button>}
             </form>
           </PanelSection>
         ) : selected ? (

@@ -1,4 +1,6 @@
 import type {
+  ConnectionTestRequest,
+  ConnectionTestResult,
   Alert, AuditRecord, ConfigPushRequest, ConfigPushResult, ConfigVersion,
   ConfigTemplate, ConfigTemplateCreate, ConfigTemplateRenderRequest,
   ConfigVersionDetail, Device, DeviceCreate, DeviceMetrics, DeviceStatus,
@@ -233,6 +235,25 @@ function validateText(value: string, maximum: number, field: string) {
 export async function listDevices(): Promise<Device[]> {
   await delay()
   return copy([...devices].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+}
+
+// Mock R1.3: addresses ending in .99 are unreachable; the password "wrong" is refused.
+export async function testConnection(form: ConnectionTestRequest): Promise<ConnectionTestResult> {
+  await delay()
+  const address = `${form.management_ip}:${form.ssh_port ?? 22}`
+  const reach = { stage: 'reachability' as const, ok: true, message: `${address} is reachable.` }
+  if (form.management_ip.trim().endsWith('.99')) {
+    const message = `Nothing answered on ${address}. Check the management IP and SSH port, and that the device is powered on with SSH enabled.`
+    return { ok: false, failed_stage: 'reachability', message, checks: [{ ...reach, ok: false, message }] }
+  }
+  if (!(form.username && form.password)) {
+    return { ok: true, failed_stage: null, message: `${address} is reachable. Login not tested: no username and password entered.`, checks: [reach] }
+  }
+  if (form.password === 'wrong') {
+    const message = 'The device refused the login. Check the username and password.'
+    return { ok: false, failed_stage: 'login', message, checks: [reach, { stage: 'login', ok: false, message }] }
+  }
+  return { ok: true, failed_stage: null, message: 'Reachable and the login succeeded.', checks: [reach, { stage: 'login', ok: true, message: `Logged in as ${form.username}.` }] }
 }
 
 export async function createDevice(payload: DeviceCreate): Promise<Device> {

@@ -20,6 +20,12 @@ from `NETMGR_SECRET_KEY`, and responses expose only `has_credentials`. Blank or 
 updating only the password keeps the enable secret. Devices without stored credentials fall back to
 `NETMGR_DEVICE_CREDENTIALS_JSON` (ADR-0002, lab use).
 
+Connection test (R1.3): `POST /api/v1/devices/test-connection` takes unsaved form values
+(`management_ip`, `ssh_port`, `platform`, optional `username`/`password`/`secret`) and returns
+`{ok, failed_stage: "reachability"|"login"|"enable"|null, message, checks: [{stage, ok, message}]}`
+with HTTP 200 whether or not the test passed. Nothing is saved; credentials are used once and never
+echoed. Login is skipped when no username and password are given. Admin only; audited.
+
 ## Authentication (ADR-0005)
 
 - Every `/api/v1/*` route requires a logged-in session, except `POST /api/v1/auth/login` and

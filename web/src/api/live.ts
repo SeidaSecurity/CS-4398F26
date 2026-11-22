@@ -1,4 +1,6 @@
 import type {
+  ConnectionTestRequest,
+  ConnectionTestResult,
   Alert, AuditRecord, ConfigPushRequest, ConfigPushResult, ConfigVersion,
   ConfigTemplate, ConfigTemplateCreate, ConfigTemplateRenderRequest,
   ConfigVersionDetail, Device, DeviceCreate, DeviceMetrics, DeviceStatus,
@@ -38,6 +40,10 @@ export function listDevices(): Promise<Device[]> {
 
 export function createDevice(device: DeviceCreate): Promise<Device> {
   return request('/devices', { method: 'POST', body: JSON.stringify(device) })
+}
+
+export function testConnection(form: ConnectionTestRequest): Promise<ConnectionTestResult> {
+  return request('/devices/test-connection', { method: 'POST', body: JSON.stringify(form) })
 }
 
 export function updateDevice(deviceId: number, patch: Partial<DeviceCreate>): Promise<Device> {

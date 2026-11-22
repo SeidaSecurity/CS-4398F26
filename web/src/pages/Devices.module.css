@@ -106,3 +106,20 @@
   line-height: 15px;
   color: var(--gray-600);
 }
+
+.testFailure {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--red-800);
+  border-radius: 6px;
+  color: var(--red-800);
+  font-size: 12px;
+}
+
+.testActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}

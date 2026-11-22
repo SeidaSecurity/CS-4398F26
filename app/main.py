@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
 from datetime import datetime
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -21,6 +21,7 @@ from app.auth_routes import router as auth_router
 from app.config_service import ConfigurationService
 from app.config_templates import TemplateRenderError, render_template
 from app.configuration import DeviceError, NetmikoConnector, record_audit_event
+from app.connection_test import ConnectionTester
 from app.credentials import (
     CredentialKeyError,
     CredentialValidationError,
@@ -47,6 +48,8 @@ from app.schemas import (
     ConfigTemplateUpdate,
     ConfigVersionDetail,
     ConfigVersionRead,
+    ConnectionTestRead,
+    ConnectionTestRequest,
     DeviceCreate,
     DeviceRead,
     DeviceUpdate,
@@ -251,6 +254,32 @@ def create_device(
         raise _credential_http_error(exc) from exc
     session.refresh(device)
     return device
+
+
+@app.post("/api/v1/devices/test-connection", response_model=ConnectionTestRead)
+def check_device_connection(
+    payload: ConnectionTestRequest,
+    request: Request,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    """R1.3: check reachability and login with unsaved form values; nothing is saved.
+
+    A sync route, so FastAPI runs the (up to ~18 s) device I/O in its thread pool.
+    """
+    tester = getattr(request.app.state, "connection_tester", None) or ConnectionTester()
+    result = tester.run(**payload.model_dump())
+    detail = "passed" if result.ok else f"failed at {result.failed_stage}"
+    record_audit_event(
+        session,
+        user.username,
+        "device.test_connection",
+        "succeeded" if result.ok else "failed",
+        f"{payload.management_ip}:{payload.ssh_port}",
+        detail,
+    )
+    session.commit()
+    return result.as_dict()
 
 
 @app.get("/api/v1/devices", response_model=list[DeviceRead])

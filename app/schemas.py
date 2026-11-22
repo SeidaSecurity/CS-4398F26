@@ -151,6 +151,30 @@ class AuditRecordRead(BaseModel):
     detail: str
 
 
+class ConnectionTestRequest(BaseModel):
+    """Unsaved Add-device form values (R1.3); credentials are used once and never stored."""
+
+    management_ip: str = Field(min_length=1, max_length=255)
+    platform: str = Field(default="cisco_ios", min_length=1, max_length=80)
+    ssh_port: int = Field(default=22, ge=1, le=65535)
+    username: str | None = Field(default=None, max_length=120)
+    password: str | None = Field(default=None, max_length=256)
+    secret: str | None = Field(default=None, max_length=256)
+
+
+class ConnectionCheck(BaseModel):
+    stage: Literal["reachability", "login", "enable"]
+    ok: bool
+    message: str
+
+
+class ConnectionTestRead(BaseModel):
+    ok: bool
+    failed_stage: Literal["reachability", "login", "enable"] | None
+    message: str
+    checks: list[ConnectionCheck]
+
+
 class DeviceStatusRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -14,7 +14,7 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 |---|---|---|---|---|---|---|
 | R1.1 Add device | E | ✅ | `create_device` with write-only `username`/`password`/`secret`; Devices form fields | `test_device_credentials_api.py::test_r1_1_*` | AT-01 | Credentials entered with the device (ADR-0008); env JSON remains a lab fallback |
 | R1.2 Edit/remove | E | ✅ | `update_device`, `delete_device`, `schemas.PartialUpdate` | `test_device_patch_then_delete`, `test_r1_2_patch_rejects_explicit_null` | AT-01 | — |
-| R1.3 Connection test | E | ❌ | — | — | AT-01 | No test connection before saving; no "save anyway" path |
+| R1.3 Connection test | E | ✅ | `app/connection_test.py` (TCP 3 s → SSH login/enable 5 s timeouts), `POST /api/v1/devices/test-connection`; Devices "Test and add" with Fix / Save anyway | `test_connection_test.py::test_r1_3_*` (fakes; stage named, password never echoed; nothing saved) | AT-01 | Testing is audited (`device.test_connection`); edit saves without a test |
 | R1.4 Credential protection | E | ✅ | `app/credentials.py` (Fernet, key from `NETMGR_SECRET_KEY`), `DeviceCredential`; responses expose only `has_credentials` | `test_credentials.py::test_r1_4_*`, `test_r1_4_credentials_never_appear_in_any_device_response` (walks every device response, audit, errors) | AT-01 | No plaintext fallback for stored credentials |
 | R1.5 Device grouping | D | ❌ | — | — | — | Needed for "device group" push (4.3.4 step 1) |
 | R1.6 Discovery | M | ⏸ | — | — | — | — |
