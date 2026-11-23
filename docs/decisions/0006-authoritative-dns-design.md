@@ -39,3 +39,16 @@ over by another member (see the reassignment note in the prompt log).
   through wire format, without sockets.
 - On Windows, port 53 can be taken by Internet Connection Sharing or the Hyper-V/WSL networking
   services when those are on. During CML sessions they are off, so the port is normally free.
+
+## Addendum — R5.4 upstream forwarding (proposed, pending PR review)
+
+An optional `DNS_UPSTREAM_HOST` (literal IPv4) with `DNS_UPSTREAM_PORT` and
+`DNS_FORWARD_TIMEOUT` enables outside-zone forwarding. The existing local-zone
+resolver and negative answers remain authoritative and never reach the
+upstream. Outside-zone queries are forwarded over UDP; truncation triggers a
+TCP retry. Transaction IDs and question sections are validated, and failure
+returns SERVFAIL without interrupting DNS or other subsystems. Leaving the
+upstream unset preserves REFUSED for outside names.
+
+This is R5.4 only: **R5.5 caching and R5.6 DHCP lease registration remain open**.
+Run the offline tests and live acceptance check before approving this addendum.

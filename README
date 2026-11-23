@@ -13,7 +13,7 @@ network devices, pushes and versions their configurations, collects their syslog
 | A: Platform and monitoring | Device inventory, polling, dashboard, alerts (4.1, 4.2) | Working; connection test (R1.3) and credential encryption (R1.4) still open |
 | A: Authentication | Login, admin/viewer roles, accounts (4.7) | Working: every API route requires login, viewers are read-only ([ADR-0005](docs/decisions/0005-authentication-and-sessions.md)); idle timeout (R7.5) open |
 | B: Configuration and logging | Push, versions, diff, rollback, templates, syslog, search, audit (4.3, 4.4) | Working and validated on the lab (Cisco IOS syslog parsed) |
-| C: Network services | DNS (4.5), DHCP (4.6) | DNS working: authoritative zones, Services screen ([ADR-0006](docs/decisions/0006-authoritative-dns-design.md)); DHCP not started |
+| C: Network services | DNS (4.5), DHCP (4.6) | Authoritative DNS and DHCP core implemented. Optional DNS forwarding (R5.4) added in a proposed feature branch; R5.5 caching and R5.6 lease registration open. Lab verification required. |
 
 Requirement-level detail: [traceability matrix](docs/verification/traceability-matrix.md).
 
