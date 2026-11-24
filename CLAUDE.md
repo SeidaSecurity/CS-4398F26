@@ -16,7 +16,8 @@ standing context we give agents. Keep it short, true, and current; change it via
 
 - **Model** — `app/models.py` (SQLAlchemy tables), `app/schemas.py` (Pydantic DTOs).
 - **Controller** — FastAPI routers (`app/main.py`, `app/monitoring.py`) plus domain logic
-  (`app/config_service.py` — push/rollback/retrieve orchestration, `app/configuration.py` — Netmiko
+  (`app/credentials.py` — encrypted device credentials, `app/connection_test.py`, `app/config_diff.py`,
+  `app/config_service.py` — push/rollback/retrieve orchestration, `app/configuration.py` — Netmiko
   adapter and `DeviceError` hierarchy, `app/config_templates.py`, `app/poller.py`, `app/syslog.py`).
   Route handlers should stay thin: validate → call domain function → map result to HTTP.
 - **View** — React app in `web/` (no business logic; it calls the REST API only, SRS 6.2).

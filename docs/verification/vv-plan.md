@@ -24,7 +24,8 @@ and name the technique in the test's docstring:
 1. **Equivalence partitioning.** Split each input into classes that should behave the same.
    Example, `render_template`: all placeholders supplied / one missing / one extra / malformed braces.
 2. **Boundary-value analysis.** Test at and around each limit. Examples: `ssh_port` = 0, 1,
-   65535, 65536; syslog PRI = 191 and 192; consecutive failures = 1 and 2 (R2.5 threshold).
+   65535, 65536; syslog PRI = 191 and 192; consecutive failures = 1 and 2 (R2.5 threshold);
+   CPU = 89.9, 90.0, 90.1 against `CPU_ALERT_PERCENT=90` (R2.5); diff input at 5,000 and 5,001 lines.
 3. **State-transition coverage.** Cover every transition in the statecharts
    ([../design/statecharts.md](../design/statecharts.md)) at least once, plus one invalid event
    per state. Example, the device state machine: up→up, up(0)→up(1), up(1)→down, down→down
@@ -39,12 +40,18 @@ Every test traces to a requirement in its name or docstring, for example
 
 | Module | Coverage | Missing cases |
 |---|---|---|
-| `app/probes.py` | 27% | SNMP response parsing, counter-delta and wrap math, uptime reset, ICMP-ok + SNMP-fail path (refactor so the pure math is testable without the network) |
-| `app/configuration.py` | 53% | `EnvironmentCredentials`: invalid JSON, non-object, missing device, missing password, optional secret |
-| `app/main.py` push | 83% | Failure **after** apply (post-push retrieve raises); unknown device id; duplicate ids de-duplicated |
-| `app/poller.py` | 92% | Probe raises → counted as failure; down→down produces no second alert; interface replacement |
-| `app/syslog.py` | 86% | `%`/`_` in search text; `since > until` → 422; TCP multi-line framing |
-| `web/src/lib/diff.ts` | none | Insert/delete/change rows; empty input (add Vitest) |
+Updated after P-008 (408 tests, 95% overall). Closed since the first audit: SNMP parsing and
+counter math (`test_snmp_probe.py`), credential lookup, push failure paths, and the diff, which
+moved to the server and is covered by parity fixtures (`test_config_diff.py`).
+
+| Module | Coverage | Missing cases |
+|---|---|---|
+| `app/probes.py` | 67% | Only the live SNMP/ICMP socket calls (`_fetch_snmp`, `ping_probe`); verified on the lab with `scripts/check_snmp.py` |
+| `app/main.py` | 86% | Lifespan start-up branches (DNS/DHCP disabled or port taken); poll-loop cancellation |
+| `app/monitoring.py` | 87% | Empty-window and 7-day bucketing edge cases |
+| `app/syslog.py` | 88% | `%`/`_` in search text; TCP multi-line framing |
+| `app/connection_test.py` | 91% | The real SSH login (`ssh_login`); verified on the lab (AT-01) |
+| Web UI (`web/src`) | none | No automated UI tests; covered by `tsc`/build and the acceptance tests |
 
 ## 4. Validation (acceptance)
 

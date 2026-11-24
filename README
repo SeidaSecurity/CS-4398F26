@@ -2,7 +2,7 @@
 
 A self-hosted network management system, comparable in purpose to SolarWinds: it monitors
 network devices, pushes and versions their configurations, collects their syslog centrally, and
-(planned) serves DNS and DHCP. Requirements are in
+serves DNS and DHCP. Requirements are in
 `SRS Requirements/SRS Network Management Application (Capstone).pdf`; the
 [docs index](docs/README.md) maps every course deliverable to its file.
 
@@ -10,10 +10,14 @@ network devices, pushes and versions their configurations, collects their syslog
 
 | Track | Features (SRS §4) | State |
 |---|---|---|
-| A: Platform and monitoring | Device inventory, polling, dashboard, alerts (4.1, 4.2) | Working; connection test (R1.3) and credential encryption (R1.4) still open |
+| A: Platform and monitoring | Device inventory, polling, dashboard, alerts (4.1, 4.2) | Working: encrypted device credentials ([ADR-0008](docs/decisions/0008-encrypted-device-credentials.md)), connection test before adding, SNMP CPU/memory (incl. Cisco MIBs), device-down and CPU-threshold alerts |
 | A: Authentication | Login, admin/viewer roles, accounts (4.7) | Working: every API route requires login, viewers are read-only ([ADR-0005](docs/decisions/0005-authentication-and-sessions.md)); idle timeout (R7.5) open |
-| B: Configuration and logging | Push, versions, diff, rollback, templates, syslog, search, audit (4.3, 4.4) | Working and validated on the lab (Cisco IOS syslog parsed) |
-| C: Network services | DNS (4.5), DHCP (4.6) | DNS working: authoritative zones, Services screen ([ADR-0006](docs/decisions/0006-authoritative-dns-design.md)); DHCP not started |
+| B: Configuration and logging | Push, versions, diff, rollback, templates, syslog, search, audit (4.3, 4.4) | Working and validated on the lab (Cisco IOS syslog parsed); version diff computed on the server |
+| C: Network services | DNS (4.5), DHCP (4.6) | Working: authoritative DNS zones ([ADR-0006](docs/decisions/0006-authoritative-dns-design.md)); DHCP pools, reservations, leases ([ADR-0007](docs/decisions/0007-dhcp-server-design.md)); Services screen with DNS and DHCP tabs |
+
+Every Essential functional requirement is implemented and tested (408 tests, 95% coverage).
+Open: Desirable features (e.g. device groups, DNS forwarding, session idle timeout), HTTPS
+(NFR-7), and the performance measurements NFR-1, NFR-2 and NFR-4.
 
 Requirement-level detail: [traceability matrix](docs/verification/traceability-matrix.md).
 
@@ -24,9 +28,11 @@ Requirement-level detail: [traceability matrix](docs/verification/traceability-m
 | API | Python 3.11+, FastAPI, Uvicorn |
 | Persistence | SQLAlchemy; SQLite for lab sessions, PostgreSQL in Docker |
 | Device configuration | Netmiko over SSH (paramiko pinned below 5 for IOSv, [ADR-0003](docs/decisions/0003-pin-paramiko-for-iosv.md)) |
-| Monitoring | icmplib (reachability), PySNMP v2c (CPU, interfaces, throughput) |
+| Monitoring | icmplib (reachability), PySNMP v2c (CPU, memory, interfaces, throughput; generic and Cisco MIBs) |
 | Logging | Built-in UDP/TCP syslog listener on port 514: RFC 5424, Cisco IOS, and RFC 3164 formats |
 | Authentication | argon2id password hashes, server-side cookie sessions, one central access policy |
+| Secrets | Device credentials encrypted with Fernet (`cryptography`); key from `NETMGR_SECRET_KEY`, never in the database |
+| Network services | Authoritative DNS (dnslib) on UDP/TCP 53; DHCP server on UDP 67 |
 | Web UI | React + Vite + Recharts in `web/` (talks to the API only) |
 | Tests and CI | pytest (coverage gate ≥ 70%), ruff, mypy, `tsc`; GitHub Actions on every PR |
 | Virtual lab | Cisco Modeling Labs (CML) with IOSv routers ([lab/README.md](lab/README.md)) |
@@ -35,14 +41,18 @@ Requirement-level detail: [traceability matrix](docs/verification/traceability-m
 
 ```
 app/            FastAPI application (models, routes, domain services, device adapters)
-  main.py         app lifespan (syslog + poller) and API routes
-  config_service.py, configuration.py, config_templates.py   configuration management (Track B)
+  main.py         app lifespan (syslog, poller, DNS, DHCP) and API routes
+  auth.py, auth_routes.py, user_routes.py                    login, roles, accounts (Track A)
+  credentials.py, connection_test.py                         encrypted device credentials, connection test (Track A)
+  monitoring.py, poller.py, probes.py                        monitoring and alerts (Track A)
+  config_service.py, configuration.py, config_templates.py, config_diff.py   configuration management (Track B)
   syslog.py       syslog listener, parser, search (Track B)
-  monitoring.py, poller.py, probes.py                        monitoring (Track A)
+  dns/, dhcp/     network services (Track C)
 tests/          pytest suite; all device I/O is faked (SRS 8.3)
 web/            React front end
 lab/            CML lab: topology notes, router base configs, setup and smoke test
-scripts/        run-lab.ps1 (run natively on Windows), check-lab.ps1 (lab smoke test)
+scripts/        run-lab.ps1 (run natively on Windows), check-lab.ps1 (lab smoke test),
+                check_snmp.py (SNMP CPU/memory check), dns_probe.py (DNS query timing)
 docs/           design, verification, process, contracts, decision records
 ```
 
@@ -83,10 +93,23 @@ cd web; npm run build   # TypeScript check + production build (Node ^20.19 or >=
 ## Devices and credentials
 
 Register devices on the Devices screen (or `POST /api/v1/devices`) with a name, management IP,
-SSH port, and Netmiko platform (`cisco_ios`). Until encrypted credential storage (R1.4) lands,
-credentials come from `NETMGR_DEVICE_CREDENTIALS_JSON` in your git-ignored `.env.lab` / `.env`,
-keyed by device name ([ADR-0002](docs/decisions/0002-device-credentials-from-environment.md)).
-Never commit credentials.
+SSH port, Netmiko platform (`cisco_ios`), and the SSH username, password and optional enable
+secret. **Test and add** first checks that the SSH port answers and the login works; if it fails,
+the form says which stage failed and offers **Fix** or **Save anyway** (R1.3).
+
+Credentials are stored encrypted with Fernet. The key comes from `NETMGR_SECRET_KEY` in your
+git-ignored `.env.lab` / `.env` and is never stored in the database. The API never returns
+credentials, only `has_credentials` ([ADR-0008](docs/decisions/0008-encrypted-device-credentials.md)).
+Generate a key once:
+
+```powershell
+.venv\Scripts\python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Keep the key safe: if it changes, stored credentials can't be decrypted and must be re-entered.
+Devices without stored credentials fall back to `NETMGR_DEVICE_CREDENTIALS_JSON`, keyed by device
+name ([ADR-0002](docs/decisions/0002-device-credentials-from-environment.md), lab use).
+`CPU_ALERT_PERCENT` (default 90) sets the CPU alert threshold. Never commit credentials or keys.
 
 ## Safety
 

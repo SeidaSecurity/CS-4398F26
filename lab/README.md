@@ -140,7 +140,7 @@ Put the same settings in `.env`, then run `docker compose up --build` and
 |---|---|---|
 | L3 reachability | `ping 192.168.198.11` from Windows | Replies |
 | SSH | `ssh -o KexAlgorithms=+diffie-hellman-group14-sha1 -o HostKeyAlgorithms=+ssh-rsa lab@192.168.198.11` (IOSv offers only SHA-1 algorithms; Windows OpenSSH needs these flags) | Router prompt |
-| SNMP (optional, from WSL) | `snmpwalk -v2c -c <community> 192.168.198.11 1.3.6.1.2.1.2.2.1.2` | Interface names |
+| SNMP | `.venv\Scripts\python scripts\check_snmp.py` (reads `SNMP_COMMUNITY` from `.env.lab`, never prints it) | PASS for ios-lab-1..3 with CPU %, memory % and 5 interfaces |
 | Polling | Open the dashboard and wait 60 s | ios-lab-1..3 **up**; ios-lab-4 **down** after 2 polls |
 | Syslog | On ios-lab-1: `conf t` → `int gi0/1` → `shut` → `no shut` | Link up/down messages appear on the Logs page |
 | Config retrieve | History → retrieve | A version is saved |

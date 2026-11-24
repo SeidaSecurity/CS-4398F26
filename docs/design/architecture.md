@@ -7,13 +7,13 @@ The system is a modular monolith in an MVC arrangement (SRS Appendix I):
 ```mermaid
 flowchart LR
     subgraph View["View — web/ (React + Vite + Recharts)"]
-        Pages[Login · Network · Devices · Push · History · Logs · Accounts]
+        Pages[Login · Network · Devices · Push · History · Logs · Services · Accounts]
     end
     subgraph Controller["Controller — FastAPI"]
         Policy{{auth.enforce_access<br/>401 / 403 for every route}}
         Routes[app/main.py routes · monitoring.py<br/>auth_routes.py · user_routes.py]
-        Domain[config_service.py · configuration.py · config_templates.py<br/>poller.py · syslog.py · auth.py<br/>dns/resolver.py · dhcp/allocator.py]
-        Adapters[NetmikoConnector · probes.py<br/>SyslogReceivers · DnsService · DhcpService]
+        Domain[config_service.py · configuration.py · config_templates.py · config_diff.py<br/>poller.py · syslog.py · auth.py · credentials.py<br/>dns/resolver.py · dhcp/allocator.py]
+        Adapters[NetmikoConnector · ConnectionTester · probes.py<br/>SyslogReceivers · DnsService · DhcpService]
     end
     subgraph Model["Model"]
         ORM[app/models.py SQLAlchemy] --> DB[(PostgreSQL)]
@@ -40,9 +40,12 @@ flowchart LR
 | `app/common_passwords.py` | Bundled common-password blocklist (NIST SP 800-63B) | A | R7.3 |
 | `app/config_service.py` | Push/rollback/retrieve orchestration and per-device outcome classification | B | R3.1–R3.6 |
 | `app/monitoring.py` | Read-only monitoring router, time bucketing | A | R2.2, R2.4, R2.6 |
-| `app/poller.py` | Poll state machine and alert raising | A | R2.1, R2.2, R2.5 |
-| `app/probes.py` | ICMP and SNMPv2c adapters, counter-to-bps conversion | A | R2.3 |
-| `app/configuration.py` | Netmiko connector, credential lookup, version and audit writers | B | R3.1–R3.3, R4.4 |
+| `app/poller.py` | Poll state machine; device-down and CPU-threshold alerts | A | R2.1, R2.2, R2.5 |
+| `app/probes.py` | ICMP and SNMPv2c adapters (CPU and memory, incl. Cisco MIBs), counter-to-bps conversion | A | R2.3 |
+| `app/credentials.py` | Fernet encryption of device credentials; stored-then-env credential source | A | R1.1, R1.4, NFR-6 |
+| `app/connection_test.py` | Two-stage connection test (TCP, then SSH login/enable) on unsaved form values | A | R1.3 |
+| `app/configuration.py` | Netmiko connector, environment credential lookup, version and audit writers | B | R3.1–R3.3, R4.4 |
+| `app/config_diff.py` | Side-by-side LCS diff of two configuration versions | B | R3.4 |
 | `app/config_templates.py` | Placeholder validation and rendering | B | R3.7 |
 | `app/syslog.py` | UDP/TCP listeners, RFC 5424 / Cisco IOS / RFC 3164 parser, search | B | R4.1–R4.3 |
 | `app/dns/` | `zones.py` rules, `resolver.py` (pure answering), `server.py` (UDP+TCP), `routes.py` | C | R5.1–R5.3 |
@@ -59,7 +62,12 @@ message opens its own DB session.
 For each device in id order: run the probe (an exception counts as unreachable) and append a
 `PollSample`. On success, reset `consecutive_failures` to 0 and set the state to up. On failure,
 increment the counter, and set the state to down at a count of 2 or more. **On an up→down edge**,
-insert one `Alert` if none is open. **On a down→up edge**, stamp `resolved_at` on the open alerts.
+insert one device-down `Alert` if no down alert is open. **On a down→up edge**, stamp
+`resolved_at` on the open down alerts. Both edges ignore alerts marked in `metric_alerts`, so an
+open CPU alert can neither suppress a down alert nor be resolved by recovery.
+**CPU threshold (R2.5):** when the device is reachable and the probe returned a CPU value, raise
+one CPU alert (with its `MetricAlert` row) if `cpu ≥ CPU_ALERT_PERCENT` (default 90) and none is
+open; resolve it once `cpu < threshold`. A poll without a CPU value leaves it unchanged.
 If the probe returned interfaces, replace that device's `InterfaceStatus` rows. Each device commits
 on its own, so one failure cannot roll back another's record.
 Complexity: O(devices) probes per round. Statechart §1.
@@ -69,10 +77,14 @@ Keep the previous `(monotonic time, sysUpTime, {ifIndex: (ifHCInOctets, ifHCOutO
 module-level dict keyed by `(device.id, ip)`. `bps = Σ(Δoctets) × 8 / Δt` over interfaces present
 in both readings. The rate is left as None, and the current reading becomes the new baseline, when
 there is no previous reading, when `sysUpTime` went backwards (the device rebooted), or when **any**
-counter went backwards. CPU is the mean of `hrProcessorLoad` across processors. If the SNMP call
+counter went backwards. **CPU** is the mean of `hrProcessorLoad` across processors; devices
+without HOST-RESOURCES-MIB (Cisco IOS/IOSv) fall back to CISCO-PROCESS-MIB `cpmCPUTotal5minRev`.
+**Memory** is `Σused / (Σused + Σfree) × 100` over the CISCO-MEMORY-POOL-MIB pools. The Cisco tables
+are optional walks, so a device without them still reports everything else. If the SNMP call
 fails, the ICMP result is kept (`combined_probe`).
-*Testability note:* this math is inside `snmp_probe`, next to the network call. Extracting a pure
-`compute_rates(previous, current)` would let it be unit-tested (it is currently 27% covered).
+*Testability:* `tests/test_snmp_probe.py` replaces `_fetch_snmp` with a fake, so the parsing, rate
+math and fallbacks are tested without the network (67% covered; the rest is socket I/O, checked on
+the lab with `scripts/check_snmp.py`).
 
 ### 2.3 Metric bucketing (`monitoring.py`)
 Window→bucket size: 1h→60 s, 24h→15 min, 7d→2 h. Each sample goes into
@@ -165,6 +177,43 @@ query (measured 1.41 ms median on the lab, NFR-3).
    `ciaddr` for renewals, otherwise broadcast to `255.255.255.255:68`. That is why no raw socket
    is needed. The socket is bound to `DHCP_SERVER_IP`, never `0.0.0.0`, so a multi-homed PC
    cannot answer on its real network.
+
+### 2.11 Device credential protection (`credentials.py`, ADR-0008)
+- **Store:** check lengths, then encrypt the password (and the optional enable secret) with Fernet
+  (AES-128-CBC + HMAC-SHA256) using `NETMGR_SECRET_KEY` from the environment, and upsert the
+  `device_credentials` row. No key → refuse with HTTP 503; nothing is saved.
+- **Use:** only the connector decrypts, through `StoredOrEnvironmentCredentials.get`: stored
+  credentials first, then the env JSON (ADR-0002) for devices that have none. A token that no
+  longer decrypts (the key changed) raises `DeviceCredentialError`, giving push status
+  `credentials`. There is never a plaintext fallback.
+- **API:** `username`, `password` and `secret` are request-only fields; responses carry
+  `has_credentials`. On PATCH, omitted credentials are kept, and a password-only update keeps the
+  stored username and enable secret.
+
+### 2.12 Connection test (`connection_test.ConnectionTester.run`, R1.3)
+1. **Reachability:** TCP connect to `management_ip:ssh_port` with a 3 s timeout. Any `OSError`
+   fails at `reachability`.
+2. **Login** (only when a username and password were given): Netmiko login with 5 s connect,
+   banner and auth timeouts, then `enable` if a secret was given. An authentication error, an SSH
+   timeout or EOF ("is this port SSH?"), or an unsupported `device_type` fails at `login`; any other
+   enable failure fails at `enable`.
+
+The worst case is about 18 s. The route is synchronous, so FastAPI runs it in the thread pool.
+Messages are fixed templates, never exception text, so a password can't be echoed. The Devices form
+calls the test before **Add**; on failure it shows the stage and message with **Fix** and
+**Save anyway**.
+
+### 2.13 Configuration diff (`config_diff.side_by_side`, R3.4)
+Split both texts on `\r?\n` (an empty text has no lines). Skip the common leading lines, then fill
+an LCS table `lcs[i][j]` (the length of the longest common subsequence of `left[i:]` and
+`right[j:]`) from the bottom-right, one `array('I')` per row. Then walk from the top: equal lines
+give a `same` row; otherwise collect a run of deletions (taken when `lcs[i+1][j] ≥ lcs[i][j+1]`,
+so deletions win ties) and additions until the lines match again. Pair that run index by index
+into `changed` rows; leftovers become `removed` or `added` rows. Time and memory are O(n·m), so
+each side is capped at 5,000 lines (worst case about 3.5 s; a typical IOS config takes under
+50 ms). This is a line-for-line port of the former `web/src/lib/diff.ts`.
+`tests/fixtures/diff_parity.json` holds 52 outputs captured from the TypeScript, and the Python
+matches all of them.
 
 ## 3. Deployment
 
