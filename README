@@ -12,12 +12,8 @@ serves DNS and DHCP. Requirements are in
 |---|---|---|
 | A: Platform and monitoring | Device inventory, polling, dashboard, alerts (4.1, 4.2) | Working: encrypted device credentials ([ADR-0008](docs/decisions/0008-encrypted-device-credentials.md)), connection test before adding, SNMP CPU/memory (incl. Cisco MIBs), device-down and CPU-threshold alerts |
 | A: Authentication | Login, admin/viewer roles, accounts (4.7) | Working: every API route requires login, viewers are read-only ([ADR-0005](docs/decisions/0005-authentication-and-sessions.md)); idle timeout (R7.5) open |
-| B: Configuration and logging | Push, versions, diff, rollback, templates, syslog, search, audit (4.3, 4.4) | Working and validated on the lab (Cisco IOS syslog parsed); version diff computed on the server |
-| C: Network services | DNS (4.5), DHCP (4.6) | Working: authoritative DNS zones ([ADR-0006](docs/decisions/0006-authoritative-dns-design.md)); DHCP pools, reservations, leases ([ADR-0007](docs/decisions/0007-dhcp-server-design.md)); Services screen with DNS and DHCP tabs |
-
-Every Essential functional requirement is implemented and tested (408 tests, 95% coverage).
-Open: Desirable features (e.g. device groups, DNS forwarding, session idle timeout), HTTPS
-(NFR-7), and the performance measurements NFR-1, NFR-2 and NFR-4.
+| B: Configuration and logging | Push, versions, diff, rollback, templates, syslog, search, audit (4.3, 4.4) | Working and validated on the lab (Cisco IOS syslog parsed) |
+| C: Network services | DNS (4.5), DHCP (4.6) | Authoritative DNS and DHCP core implemented. Optional DNS forwarding (R5.4) added in a proposed feature branch; R5.5 caching and R5.6 lease registration open. Lab verification required. |
 
 Requirement-level detail: [traceability matrix](docs/verification/traceability-matrix.md).
 

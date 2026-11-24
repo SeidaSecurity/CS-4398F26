@@ -61,7 +61,7 @@ After MoT session P-002 (same day): 55 tests pass, 86% coverage, ruff 0, mypy 0.
 | R5.1 Authoritative A/AAAA/PTR/CNAME | E | ✅ | `app/dns/resolver.py`, `app/dns/server.py` (UDP+TCP, started from lifespan) | `test_dns_resolver.py::test_r5_1_*`, `test_dns_server.py` (real UDP and TCP queries) | AT-08 | Lab check (Resolve-DnsName, NFR-3 timing) in DNS increment 6 |
 | R5.2 Zone/record management | E | ✅ | `app/dns/zones.py`, `app/dns/routes.py`, Services screen `web/src/pages/Services.tsx` | `test_dns_zones.py::test_r5_2_*`, `test_dns_api.py` | AT-08 | Create/edit/delete through the UI; deletes ask for confirmation; viewers read-only |
 | R5.3 Negative response | E | ✅ | `resolver.answer`: NXDOMAIN / NODATA with SOA (RFC 2308) | `test_r5_3_*` (incl. empty non-terminal, dangling CNAME, REFUSED outside zones) | AT-08 | Served over UDP/TCP; lab check in increment 6 |
-| R5.4 Forwarding | D | ❌ | — | — | — | — |
+| R5.4 Forwarding | D | 🟡 | `app/dns/forwarder.py`, `DatabaseResolver`, DNS_UPSTREAM_* settings | `test_dns_forwarding.py::test_r5_4_*` (added; run on checkout) | AT-08 follow-up | Optional upstream; offline tests included. Pending execution, lab verification and screenshots |
 | R5.5 Caching | D | ❌ | — | — | — | — |
 | R5.6 Lease registration | D | ❌ | — | — | — | — |
 
