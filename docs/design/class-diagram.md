@@ -20,8 +20,8 @@ classDiagram
     class DeviceCredential {
         +int device_id «PK»
         +str username
-        +str password_ciphertext  (Fernet)
-        +str? secret_ciphertext  (Fernet)
+        +str password_ciphertext  «Fernet»
+        +str? secret_ciphertext  «Fernet»
         +datetime updated_at
     }
     class ConfigVersion {
@@ -29,7 +29,7 @@ classDiagram
         +int device_id
         +int version «unique per device»
         +str configuration
-        +str source  (retrieval|pre_push|post_push|pre_rollback|rollback)
+        +str source  «retrieval|pre_push|post_push|pre_rollback|rollback»
         +str operator
         +datetime created_at
     }
@@ -53,7 +53,7 @@ classDiagram
     }
     class DeviceState {
         +int device_id «PK»
-        +str state (up|down)
+        +str state «up|down»
         +datetime last_poll_at
         +int consecutive_failures
     }
@@ -66,14 +66,14 @@ classDiagram
     }
     class MetricAlert {
         +int alert_id «PK»
-        +str metric  (cpu)
+        +str metric  «cpu»
         +float threshold
     }
     class InterfaceStatus {
         +int device_id «PK»
         +int index «PK»
         +str name
-        +str oper_status (up|down)
+        +str oper_status «up|down»
         +float? speed_mbps
     }
     class TopologyLink {
@@ -114,14 +114,14 @@ classDiagram
     class User {
         +int id
         +str username «unique, case-insensitive»
-        +str password_hash  (argon2id, never returned)
-        +str role (admin|viewer)
+        +str password_hash  «argon2id, never returned»
+        +str role «admin|viewer»
         +bool disabled
         +datetime created_at
     }
     class UserSession {
         +int id
-        +str token_hash «unique»  (SHA-256 of cookie token)
+        +str token_hash «unique»  «SHA-256 of cookie token»
         +int user_id
         +datetime created_at
         +datetime expires_at
@@ -176,7 +176,7 @@ classDiagram
     class ConnectionTestResult {
         <<dataclass>>
         +bool ok
-        +str? failed_stage  (reachability|login|enable)
+        +str? failed_stage  «reachability|login|enable»
         +str message
         +list checks
     }
@@ -358,13 +358,13 @@ classDiagram
         +int id
         +str name «unique, lowercase»
         +int default_ttl
-        +int serial  (SOA, bumped on change)
+        +int serial  «SOA, bumped on change»
     }
     class DnsRecord {
         +int id
         +int zone_id
-        +str name  ("@" or relative)
-        +str rtype (A|AAAA|CNAME|PTR)
+        +str name  «"@" or relative»
+        +str rtype «A|AAAA|CNAME|PTR»
         +str value
         +int? ttl
     }
@@ -430,7 +430,7 @@ classDiagram
         +int pool_id
         +str mac
         +str ip «unique»
-        +str state (offered|bound)
+        +str state «offered|bound»
         +datetime expires_at
     }
     DhcpPool "1" *-- "0..*" DhcpReservation
@@ -464,7 +464,7 @@ classDiagram
         -_claim(pool, mac, ip) DhcpLease?
     }
     class DhcpService {
-        +str bound_address  (= DHCP_SERVER_IP)
+        +str bound_address  «= DHCP_SERVER_IP»
         +int port
         +start()
         +stop()
