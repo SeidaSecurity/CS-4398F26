@@ -58,6 +58,7 @@ from app.schemas import (
     LogRecordRead,
 )
 from app.syslog import SyslogReceivers, list_logs
+from app.demo_activation_api import router as demo_activation_router
 from app.user_routes import router as users_router
 
 Base.metadata.create_all(bind=engine)
@@ -600,3 +601,7 @@ def get_audit_records(
     return list(
         session.scalars(select(AuditRecord).order_by(AuditRecord.occurred_at.desc()).limit(limit))
     )
+
+
+# Optional localhost-only capstone presentation activation route.
+app.include_router(demo_activation_router)

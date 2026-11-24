@@ -10,7 +10,7 @@ export type ChartSectionProps = HTMLAttributes<HTMLElement> & {
   chip?: ReactNode
   legend?: ChartLegendItem[]
   yTicks: string[]
-  xLabels: [string, string, string]
+  xLabels: string[]
 }
 
 export function ChartSection({ title, chip, legend, yTicks, xLabels, children, className, ...props }: ChartSectionProps) {

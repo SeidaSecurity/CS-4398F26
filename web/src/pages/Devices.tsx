@@ -76,7 +76,7 @@ export default function Devices() {
   }, [reloadDevices, reloadStatuses, reloadLogs, reloadTopology, reloadInterfaces])
 
   useEffect(() => {
-    const interval = setInterval(reload, 60_000)
+    const interval = setInterval(reload, 3_000)
     return () => clearInterval(interval)
   }, [reload])
 

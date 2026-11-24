@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.demo_metrics_adapter import fetch_demo_metrics, fetch_demo_state
 from app.database import get_session
 from app.models import (
     Alert,
@@ -27,6 +28,8 @@ from app.schemas import (
     TopologyLinkRead,
     as_utc,
 )
+
+from app.incident_activity_api import install_incident_route  # CS4398_INCIDENT_AGGREGATION_V5
 
 router = APIRouter(prefix="/api/v1/monitoring")
 
@@ -113,6 +116,9 @@ def average_points(
 
 @router.get("/metrics", response_model=NetworkMetrics)
 def get_metrics(window: TimeWindow = "1h", session: Session = Depends(get_session)):
+    demo = fetch_demo_metrics("network", window)
+    if demo is not None:
+        return NetworkMetrics.model_validate(demo)
     buckets = sample_buckets(session, window)
     return NetworkMetrics(
         devices_up=[
@@ -135,6 +141,9 @@ def get_device_metrics(
 ):
     if session.get(Device, device_id) is None:
         raise HTTPException(status_code=404, detail="Device not found")
+    demo = fetch_demo_metrics("device", window, session.get(Device, device_id).name)
+    if demo is not None:
+        return DeviceMetrics.model_validate(demo)
     buckets = sample_buckets(session, window, device_id)
     return DeviceMetrics(
         cpu=average_points(buckets, "cpu_pct"),
@@ -142,3 +151,10 @@ def get_device_metrics(
         throughput_in_bps=average_points(buckets, "in_bps"),
         throughput_out_bps=average_points(buckets, "out_bps"),
     )
+
+
+@router.get("/demo-state")
+def get_demo_state():
+    return fetch_demo_state() or {"running": False, "active_warnings": [], "active_warning_count": 0, "telemetry_source": "unavailable"}
+
+install_incident_route(router)

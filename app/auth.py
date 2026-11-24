@@ -222,6 +222,15 @@ def enforce_access(request: Request, db: Session = Depends(get_session)) -> None
     method, path = request.method.upper(), request.url.path
     if not path.startswith("/api/v1/") or (method, path) in PUBLIC_OPERATIONS:
         return
+    # CS4398_FOUR_DEVICE_LOCALHOST_TOKEN_GUARD (opt-in; never bypass other routes)
+    if method == "POST" and path in ("/api/v1/demo/setup-four", "/api/v1/demo/activate-standby"):
+        import hmac
+        secret = os.getenv("CS4398_DEMO_ACTIVATION_TOKEN", "")
+        token = request.headers.get("X-Demo-Token", "")
+        if (secret and token and request.client and
+                request.client.host in ("127.0.0.1", "::1") and
+                hmac.compare_digest(secret, token)):
+            return
     user = current_user(request, db)  # raises 401 when not logged in
     needs_admin = method not in SAFE_METHODS or path.startswith(ADMIN_ONLY_READ_PREFIXES)
     if needs_admin and user.role != "admin":
