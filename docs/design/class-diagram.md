@@ -1,6 +1,6 @@
 # UML Class Diagram
 
-Generated from the code at `632ae38`. GitHub and VS Code (with a Mermaid extension) render these
+Generated from the code at `b0ba39e` (after P-008). GitHub and VS Code (with a Mermaid extension) render these
 diagrams; export PNGs for the slides with <https://mermaid.live>.
 
 ## Model layer (persistence — `app/models.py`)
@@ -15,13 +15,21 @@ classDiagram
         +str platform = "cisco_ios"
         +int ssh_port = 22
         +datetime created_at
+        +bool has_credentials «property»
+    }
+    class DeviceCredential {
+        +int device_id «PK»
+        +str username
+        +str password_ciphertext  «Fernet»
+        +str? secret_ciphertext  «Fernet»
+        +datetime updated_at
     }
     class ConfigVersion {
         +int id
         +int device_id
         +int version «unique per device»
         +str configuration
-        +str source  (retrieval|pre_push|post_push|pre_rollback|rollback)
+        +str source  «retrieval|pre_push|post_push|pre_rollback|rollback»
         +str operator
         +datetime created_at
     }
@@ -45,7 +53,7 @@ classDiagram
     }
     class DeviceState {
         +int device_id «PK»
-        +str state (up|down)
+        +str state «up|down»
         +datetime last_poll_at
         +int consecutive_failures
     }
@@ -56,11 +64,16 @@ classDiagram
         +datetime raised_at
         +datetime? resolved_at
     }
+    class MetricAlert {
+        +int alert_id «PK»
+        +str metric  «cpu»
+        +float threshold
+    }
     class InterfaceStatus {
         +int device_id «PK»
         +int index «PK»
         +str name
-        +str oper_status (up|down)
+        +str oper_status «up|down»
         +float? speed_mbps
     }
     class TopologyLink {
@@ -92,6 +105,8 @@ classDiagram
     Device "1" *-- "0..*" PollSample
     Device "1" *-- "0..1" DeviceState
     Device "1" *-- "0..*" Alert
+    Device "1" *-- "0..1" DeviceCredential : credential
+    Alert "1" *-- "0..1" MetricAlert : marks CPU alerts
     Device "1" *-- "0..*" InterfaceStatus
     Device "1" -- "0..*" TopologyLink : a / b
     AuditRecord ..> Device : names (kept after delete)
@@ -99,14 +114,14 @@ classDiagram
     class User {
         +int id
         +str username «unique, case-insensitive»
-        +str password_hash  (argon2id, never returned)
-        +str role (admin|viewer)
+        +str password_hash  «argon2id, never returned»
+        +str role «admin|viewer»
         +bool disabled
         +datetime created_at
     }
     class UserSession {
         +int id
-        +str token_hash «unique»  (SHA-256 of cookie token)
+        +str token_hash «unique»  «SHA-256 of cookie token»
         +int user_id
         +datetime created_at
         +datetime expires_at
@@ -117,7 +132,7 @@ classDiagram
 
 `*--` marks composition: deleting a device (or a user) cascades to these rows. Users are
 disabled, never deleted, so audit history keeps a valid actor. Neither the password nor the
-session token is ever stored in plaintext (R7.3, ADR-0005). `AuditRecord` stores the device
+session token is ever stored in plaintext (R7.3, ADR-0005). Device passwords and enable secrets are stored only as Fernet ciphertext, with the key outside the database (R1.4, NFR-6, ADR-0008). An `Alert` with a `MetricAlert` row is a CPU-threshold alert; one without is a device-down alert, so the two kinds are raised and resolved independently (R2.5). Both tables were added without changing existing columns, so existing databases need no migration. `AuditRecord` stores the device
 **name**, not a foreign key, so audit history survives deletion (NFR-8). `LogRecord.source` is a
 hostname string and is not linked to `Device`.
 
@@ -133,7 +148,7 @@ classDiagram
         +restore(device, configuration) None
     }
     class NetmikoConnector {
-        -EnvironmentCredentials credentials
+        -StoredOrEnvironmentCredentials credentials
         -_run(device, operation, configuration) str
         +retrieve(device) str
         +push(device, configuration) None
@@ -142,6 +157,35 @@ classDiagram
     class EnvironmentCredentials {
         +get(device) dict
     }
+    class StoredOrEnvironmentCredentials {
+        +get(device) dict  (stored first, env JSON fallback)
+    }
+    class credentials {
+        <<module app/credentials.py>>
+        +store_credentials(db, device, username, password, secret)
+        +load_credentials(device) dict?
+        -_fernet() Fernet  (key from NETMGR_SECRET_KEY)
+    }
+    class CredentialKeyError
+    class CredentialValidationError
+    class ConnectionTester {
+        +run(management_ip, ssh_port, platform, username, password, secret) ConnectionTestResult
+        -tcp_check(host, port, timeout)
+        -ssh_login(params)
+    }
+    class ConnectionTestResult {
+        <<dataclass>>
+        +bool ok
+        +str? failed_stage  «reachability|login|enable»
+        +str message
+        +list checks
+    }
+    class config_diff {
+        <<module>>
+        +side_by_side(a, b) dict  (rows, added, removed)
+        +MAX_DIFF_LINES = 5000
+    }
+    class DiffTooLargeError
     class Probe {
         <<Protocol>>
         +__call__(device) ProbeResult
@@ -161,12 +205,16 @@ classDiagram
         +ping_probe(device) ProbeResult
         +snmp_probe(device, community) ProbeResult
         +combined_probe(device) ProbeResult
+        -_cpu_percent(data) float?  (HOST-RESOURCES, else Cisco)
+        -_memory_percent(data) float?  (Cisco memory pools)
         -_previous_readings dict
     }
     class poller {
         <<module>>
-        +poll_device(session, device, probe, now)
+        +poll_device(session, device, probe, now, cpu_threshold)
         +poll_all(session_factory, probe)
+        +cpu_alert_threshold() float
+        -_check_cpu(session, device, cpu_pct, threshold, now)
     }
     class config_templates {
         <<module>>
@@ -245,8 +293,9 @@ classDiagram
     }
     class APIRoutes {
         <<FastAPI app/main.py + monitoring.router>>
-        devices CRUD
-        config retrieve/push/restore/versions
+        devices CRUD (+ write-only credentials)
+        devices/test-connection
+        config retrieve/push/restore/versions/diff
         templates CRUD + render
         logs, audit
         monitoring status/alerts/metrics/topology
@@ -262,8 +311,18 @@ classDiagram
     ConfigurationService ..> ChangeResult
     ConfigurationService --> configuration
     APIRoutes --> ConfigurationService
-    NetmikoConnector --> EnvironmentCredentials
+    NetmikoConnector --> StoredOrEnvironmentCredentials
+    EnvironmentCredentials <|-- StoredOrEnvironmentCredentials
+    StoredOrEnvironmentCredentials --> credentials : load_credentials
     EnvironmentCredentials ..> CredentialLookupError : raises
+    credentials ..> DeviceCredentialError : wrong or missing key on load
+    credentials ..> CredentialKeyError : raises
+    credentials ..> CredentialValidationError : raises
+    ConnectionTester ..> ConnectionTestResult
+    config_diff ..> DiffTooLargeError : raises
+    APIRoutes --> credentials : store_credentials
+    APIRoutes --> ConnectionTester : app.state.connection_tester
+    APIRoutes --> config_diff
     Probe <|.. probes : combined_probe
     probes ..> ProbeResult
     poller --> Probe
@@ -299,13 +358,13 @@ classDiagram
         +int id
         +str name «unique, lowercase»
         +int default_ttl
-        +int serial  (SOA, bumped on change)
+        +int serial  «SOA, bumped on change»
     }
     class DnsRecord {
         +int id
         +int zone_id
-        +str name  ("@" or relative)
-        +str rtype (A|AAAA|CNAME|PTR)
+        +str name  «"@" or relative»
+        +str rtype «A|AAAA|CNAME|PTR»
         +str value
         +int? ttl
     }
@@ -371,7 +430,7 @@ classDiagram
         +int pool_id
         +str mac
         +str ip «unique»
-        +str state (offered|bound)
+        +str state «offered|bound»
         +datetime expires_at
     }
     DhcpPool "1" *-- "0..*" DhcpReservation
@@ -405,7 +464,7 @@ classDiagram
         -_claim(pool, mac, ip) DhcpLease?
     }
     class DhcpService {
-        +str bound_address  (= DHCP_SERVER_IP)
+        +str bound_address  «= DHCP_SERVER_IP»
         +int port
         +start()
         +stop()
@@ -438,7 +497,7 @@ start (port taken, or DHCP's safety check failed).
 
 `main.tsx` → `AuthProvider` (`auth.tsx`, holds the signed-in user) → `App`, which shows `Login`
 when signed out, otherwise `Layout` / `Sidebar` → pages `Network`, `Logs`, `Devices`, `Push`,
-`History`, `Services` (DNS and DHCP tabs: `Services.tsx`, `ServicesDhcp.tsx`), `Accounts`. `useVisibleNav()` in `nav.tsx` filters admin-only items (`Push`,
+`History`, `Services` (DNS and DHCP tabs: `Services.tsx`, `ServicesDhcp.tsx`), `Accounts`. `Devices` runs the connection test before adding a device and never displays credentials (only `has_credentials`). `History` renders the diff rows the server computes (R3.4); `api/mockDiff.ts` exists only so mock mode can imitate that endpoint. `useVisibleNav()` in `nav.tsx` filters admin-only items (`Push`,
 `Accounts`) for viewers, and pages hide write controls with `useAuth().isAdmin`. The server still
 enforces every rule; the UI just doesn't offer what would be refused. Pages call `api`
 (`api/index.ts`), which resolves to `live.ts` (REST) or `mock.ts` (same signatures). Any 401
@@ -460,4 +519,11 @@ in `components/ui/`.
   protection, session validity); `auth_routes.py` and `user_routes.py` only translate them to HTTP.
 - **Exception hierarchy at the boundary.** Netmiko errors become `DeviceError` subclasses, each
   carrying a `status` and an operator-safe message, so the service never inspects library types.
-- **Remaining.** `app/main.py` (385 lines) still holds device/template/log routes. Split it into routers (#19).
+- **Secrets are write-only.** Device credentials go in through the API and come out only to
+  the connector. No response model has a credential field, and
+  `test_r1_4_credentials_never_appear_in_any_device_response` walks every device response, the
+  audit log and the errors to prove it.
+- **Behaviour-preserving port with parity tests.** The diff moved from the View to the server
+  (SRS 6.2) by porting the algorithm line for line and checking it against 52 outputs captured
+  from the original TypeScript.
+- **Remaining.** `app/main.py` (591 lines) still holds device/template/log routes. Split it into routers (#19).

@@ -15,7 +15,7 @@ stateDiagram-v2
     Suspect --> Up : poll ok  [failures=0]
     Suspect --> Down : poll fails  [failures=2] / raise Alert
     Down --> Down : poll fails  [failures++] / no new alert
-    Down --> Up : poll ok  [failures=0] / resolve open Alerts
+    Down --> Up : poll ok  [failures=0] / resolve open device-down Alerts
     Up --> [*] : device deleted
     Suspect --> [*] : device deleted
     Down --> [*] : device deleted
@@ -24,14 +24,27 @@ stateDiagram-v2
 `Suspect` is a derived state: the DB stores `state="up"` with `consecutive_failures=1`. A probe
 exception counts as a failed poll.
 
-## 2. Alert lifecycle — R2.5 — implemented
+## 2. Alert lifecycles — R2.5 (`poll_device`, `_check_cpu`) — implemented
+
+There are two independent kinds of alert. A CPU alert is marked by a `MetricAlert` row, and
+neither kind's transitions touch the other (checkpoint F, `test_r2_5_checkpoint_f_*`).
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Open : device enters Down (at most one open alert per outage)
-    Open --> Resolved : next successful poll / resolved_at = now
-    Resolved --> [*]
+    state "Device-down alert" as DownAlert {
+        [*] --> DownOpen : device enters Down (at most one open per outage)
+        DownOpen --> DownResolved : next successful poll / resolved_at = now
+        DownResolved --> [*]
+    }
+    state "CPU alert" as CpuAlert {
+        [*] --> CpuOpen : cpu >= CPU_ALERT_PERCENT [none open] / add Alert + MetricAlert
+        CpuOpen --> CpuOpen : cpu >= threshold, no CPU value, or device down
+        CpuOpen --> CpuResolved : cpu < threshold / resolved_at = now
+        CpuResolved --> [*]
+    }
 ```
+
+Boundary tests use the default threshold of 90: 89.9 raises nothing; 90.0 and 90.1 raise an alert.
 
 ## 3. Per-device configuration push — R3.1, R3.2, R3.5 (`app/config_service.py::ConfigurationService._apply_change`) — implemented
 
@@ -176,3 +189,23 @@ stateDiagram-v2
 There is no "deleted" state: accounts are disabled, so audit records always name a real user.
 A password reset (policy-checked) is a self-transition in either active state.
 Covered by `tests/test_users_api.py` and `test_r7_4_bootstrap_*`.
+
+## 10. Add device with connection test — R1.1, R1.3, SRS 4.1.4 (`Devices.tsx::submitDevice`, `connection_test.py`) — implemented
+
+```mermaid
+stateDiagram-v2
+    [*] --> Editing : Add device
+    Editing --> Testing : Test and add / POST /devices/test-connection
+    Testing --> Saving : ok (reachable; login ok if credentials given)
+    Testing --> TestFailed : failed_stage = reachability, login or enable
+    TestFailed --> Editing : Fix
+    TestFailed --> Saving : Save anyway
+    Saving --> Saved : 201 / device selected, password fields cleared
+    Saving --> Editing : 409 duplicate name, 422 invalid or partial credentials, 503 no key
+    Editing --> [*] : Cancel
+    Saved --> [*]
+```
+
+Testing never saves anything, and each test is audited as `device.test_connection`. Editing an
+existing device saves directly, without a test. Covered by `tests/test_connection_test.py` and
+`tests/test_device_credentials_api.py`.

@@ -1,6 +1,6 @@
 # ADR-0002: Device credentials from an environment variable (interim)
 
-- **Status:** Accepted as interim; superseded once R1.4/NFR-6 are implemented
+- **Status:** Superseded by [ADR-0008](0008-encrypted-device-credentials.md) (2026-11-21). The environment JSON remains only as a fallback for devices without stored credentials.
 - **Requirements:** R1.1, R1.4, NFR-6
 
 ## Context
